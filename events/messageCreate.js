@@ -13,14 +13,14 @@ function getTodayDateString() {
 
 function getWeekStartDateString() {
     const now = new Date();
-    const dayOfWeek = now.getUTCDay(); // 0 = Sunday, 5 = Friday
+    const dayOfWeek = now.getUTCDay(); 
     const diff = now.getUTCDate() - (dayOfWeek + 2) % 7; 
     const friday = new Date(now.setUTCDate(diff));
     friday.setUTCHours(0, 0, 0, 0); 
     return friday.toISOString().split('T')[0];
 }
 
-// (دالة تتبع الإحصائيات)
+// (دالة تتبع الإحصائيات - النسخة المحدثة)
 async function trackMessageStats(message, client) {
     const sql = client.sql;
     try {
@@ -154,7 +154,7 @@ module.exports = {
                         try {
                             const member = await message.guild.members.fetch(userID);
                             if (!member) return;
-                            console.log(`[Disboard Bump] تم تسجيل بومب من: ${member.user.tag}`);
+                            console.log(`[Disboard Bump] Bump registered for: ${member.user.tag}`);
                             await client.incrementQuestStats(userID, guildID, 'disboard_bumps');
                             const totalStatsId = `${userID}-${guildID}`;
                             let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID: userID, guildID: guildID, total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
@@ -177,7 +177,6 @@ module.exports = {
         try {
             settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
         } catch (err) {
-            console.error("[Settings Load Error]", err);
             settings = null;
         }
 
