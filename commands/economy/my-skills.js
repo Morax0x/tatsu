@@ -15,7 +15,7 @@ module.exports = {
             .setRequired(false)),
 
     name: 'my-skills',
-    aliases: ['مهاراتي', 'skills', 'ms', 'قدراتي'],
+    aliases: ['مهاراتي', 'skills', 'ms', 'عتاد', 'قدراتي'],
     category: "Economy",
     description: 'عرض مهاراتك القتالية وتفاصيل سلاحك.',
 
