@@ -4,6 +4,7 @@ const sql = new SQLite('./mainDB.sqlite');
 const fs = require('fs');
 const path = require('path');
 
+// تفعيل WAL للأداء
 sql.pragma('journal_mode = WAL');
 
 try {
@@ -44,35 +45,36 @@ const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000;
 
 const botToken = process.env.DISCORD_BOT_TOKEN;
 
-const EMOJI_MORA = '<:mora:1435647151349698621>';
-const EMOJI_STAR = '⭐';
-const EMOJI_WI = '<a:wi:1435572304988868769>';
-const EMOJI_WII = '<a:wii:1435572329039007889>';
-const EMOJI_FASTER = '<a:JaFaster:1435572430042042409>';
-const EMOJI_PRAY = '<:0Pray:1437067281493524502>';
-const EMOJI_COOL = '<a:NekoCool:1435572459276337245>';
-
-// ربط الدوال بالـ client
+// ربط المتغيرات والمولدات
+client.EMOJI_MORA = '<:mora:1435647151349698621>';
+client.EMOJI_STAR = '⭐';
+client.EMOJI_WI = '<a:wi:1435572304988868769>';
+client.EMOJI_WII = '<a:wii:1435572329039007889>';
+client.EMOJI_FASTER = '<a:JaFaster:1435572430042042409>';
+client.EMOJI_PRAY = '<:0Pray:1437067281493524502>';
+client.EMOJI_COOL = '<a:NekoCool:1435572459276337245>';
 client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
-client.EMOJI_MORA = EMOJI_MORA;
-client.EMOJI_STAR = EMOJI_STAR;
-client.EMOJI_WI = EMOJI_WI;
-client.EMOJI_WII = EMOJI_WII;
-client.EMOJI_FASTER = EMOJI_FASTER;
-client.EMOJI_PRAY = EMOJI_PRAY;
-client.EMOJI_COOL = EMOJI_COOL;
 
 require('./handlers/backup-scheduler.js')(client, sql);
+
+// --- قوالب البيانات الكاملة (لمنع الأخطاء) ---
+const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
+const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
+
+function safeMerge(base, defaults) {
+    const result = { ...base };
+    for (const key in defaults) {
+        if (result[key] === undefined) result[key] = defaults[key];
+    }
+    return result;
+}
 
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
     try {
         const guild = member.guild;
-        const sql = client.sql;
         const allLevelRoles = sql.prepare("SELECT level, roleID FROM level_roles WHERE guildID = ? ORDER BY level DESC").all(guild.id);
-
         if (allLevelRoles.length === 0) return; 
-
         const botMember = guild.members.me;
         if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) return;
 
@@ -83,7 +85,6 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
         for (const row of allLevelRoles) {
             const role = guild.roles.cache.get(row.roleID);
             if (!role) continue;
-
             if (row.level <= newLevel && !highestRoleFound) {
                 highestRoleFound = true;
                 if (!member.roles.cache.has(role.id)) roleToAdd = role; 
@@ -91,23 +92,13 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
                 if (member.roles.cache.has(role.id)) rolesToRemove.push(role);
             }
         }
-
-        if (roleToAdd) {
-            if (roleToAdd.position < botMember.roles.highest.position) {
-                await member.roles.add(roleToAdd);
-                console.log(`[Level Roles] Added ${roleToAdd.name} to ${member.user.tag}`);
-            }
+        if (roleToAdd && roleToAdd.position < botMember.roles.highest.position) {
+            await member.roles.add(roleToAdd);
         }
-
         if (rolesToRemove.length > 0) {
-            try {
-                await member.roles.remove(rolesToRemove);
-            } catch (removeErr) { /* Silent fail */ }
+            try { await member.roles.remove(rolesToRemove); } catch (e) {}
         }
-
-    } catch (err) {
-        console.error("[Level Roles] Error:", err.message);
-    }
+    } catch (err) { console.error("[Level Roles] Error:", err.message); }
 }
 
 client.sendLevelUpMessage = async function(messageOrInteraction, member, newLevel, oldLevel, xpData) {
@@ -134,19 +125,14 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
             channelToSend = guild.channels.cache.get(channelLevel.channel) || channel;
         }
         if (!channelToSend) return;
-        const permissionFlags = channelToSend.permissionsFor(guild.members.me);
-        if (permissionFlags.has(PermissionsBitField.Flags.SendMessages) && permissionFlags.has(PermissionsBitField.Flags.ViewChannel)) {
+        const perms = channelToSend.permissionsFor(guild.members.me);
+        if (perms.has(PermissionsBitField.Flags.SendMessages) && perms.has(PermissionsBitField.Flags.ViewChannel)) {
             await channelToSend.send({ content: levelUpContent, embeds: [embed] }).catch(() => {});
         }
-    } catch (err) {
-        console.error(`[LevelUp Error]: ${err.message}`);
-    }
+    } catch (err) { console.error(`[LevelUp Error]: ${err.message}`); }
 }
 
-function getTodayDateString() {
-    return new Date().toISOString().split('T')[0];
-}
-
+function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
     const now = new Date();
     const dayOfWeek = now.getUTCDay(); 
@@ -173,7 +159,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
 
         const userIdentifier = sendMention ? `${member}` : `**${member.displayName}**`;
         const settings = sql.prepare("SELECT questChannelID FROM settings WHERE guild = ?").get(guild.id);
-        if (!settings || !settings.questChannelID) return;
+        if (!settings || !settings.questChannelID) return; 
 
         const channel = guild.channels.cache.get(settings.questChannelID);
         if (!channel) return;
@@ -263,6 +249,8 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
         const streakData = sql.prepare("SELECT * FROM streaks WHERE guildID = ? AND userID = ?").get(member.id, member.guild.id);
         const mediaStreakData = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND userID = ?").get(member.guild.id, member.id);
         if (!totalStatsData) totalStatsData = client.getTotalStats.get(`${member.id}-${member.guild.id}`) || {};
+        totalStatsData = safeMerge(totalStatsData, defaultTotalStats); // Safe merge
+
         if (levelData && levelData.hasOwnProperty(ach.stat)) currentProgress = levelData[ach.stat];
         else if (totalStatsData && totalStatsData.hasOwnProperty(ach.stat)) currentProgress = totalStatsData[ach.stat];
         else if (ach.stat === 'highestStreak' && streakData) currentProgress = streakData.highestStreak || 0;
@@ -310,16 +298,33 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         const weekStartDateStr = getWeekStartDateString();
         const dailyStatsId = `${userID}-${guildID}-${dateStr}`;
         const weeklyStatsId = `${userID}-${guildID}-${weekStartDateStr}`;
-        let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID, guildID, date: dateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-        let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID, guildID, weekStartDate: weekStartDateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
+        const totalStatsId = `${userID}-${guildID}`;
+
+        let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID, guildID, date: dateStr };
+        let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID, guildID, weekStartDate: weekStartDateStr };
+        let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID, guildID };
+
+        // 🌟 دمج آمن هنا أيضاً 🌟
+        dailyStats = safeMerge(dailyStats, defaultDailyStats);
+        weeklyStats = safeMerge(weeklyStats, defaultDailyStats);
+        totalStats = safeMerge(totalStats, defaultTotalStats);
+
         if (dailyStats.hasOwnProperty(stat)) dailyStats[stat] = (dailyStats[stat] || 0) + amount;
         if (weeklyStats.hasOwnProperty(stat)) weeklyStats[stat] = (weeklyStats[stat] || 0) + amount;
+        
+        // تحديث خاص لإحصائيات التوتال إذا كانت من نوع معين
+        if (stat === 'disboard_bumps') totalStats.total_disboard_bumps = (totalStats.total_disboard_bumps || 0) + amount;
+        if (stat === 'meow_count') { /* لا يوجد في التوتال حالياً */ }
+
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
+        client.setTotalStats.run(totalStats);
+
         const member = client.guilds.cache.get(guildID)?.members.cache.get(userID);
         if (member) {
             await client.checkQuests(client, member, dailyStats, 'daily', dateStr);
             await client.checkQuests(client, member, weeklyStats, 'weekly', weekStartDateStr);
+            if (stat === 'disboard_bumps') await client.checkAchievements(client, member, null, totalStats);
         }
     } catch (err) { console.error(`[IncrementQuestStats] Error:`, err.message); }
 }
@@ -423,15 +428,22 @@ client.on(Events.ClientReady, async () => {
                     const totalStatsId = `${member.id}-${guild.id}`;
                     let level = client.getLevel.get(member.id, guild.id);
                     if (!level) { level = { ...client.defaultData, user: member.id, guild: guild.id }; }
-                    let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID: member.id, guildID: guild.id, date: dateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-                    let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID: member.id, guildID: guild.id, weekStartDate: weekStartDateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-                    let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID: member.id, guildID: guild.id, total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
+                    
+                    let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID: member.id, guildID: guild.id, date: dateStr };
+                    let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID: member.id, guildID: guild.id, weekStartDate: weekStartDateStr };
+                    let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID: member.id, guildID: guild.id };
+
+                    // 🌟 دمج آمن في اللوب 🌟
+                    dailyStats = safeMerge(dailyStats, defaultDailyStats);
+                    weeklyStats = safeMerge(weeklyStats, defaultDailyStats);
+                    totalStats = safeMerge(totalStats, defaultTotalStats);
+
                     let statsChanged = false;
                     if (!member.voice.selfMute && !member.voice.selfDeaf) {
                         dailyStats.vc_minutes += MINUTES_PER_TICK;
                         weeklyStats.vc_minutes += MINUTES_PER_TICK;
-                        totalStats.total_vc_minutes = (totalStats.total_vc_minutes || 0) + MINUTES_PER_TICK;
-                        level.totalVCTime = (level.totalVCTime || 0) + SECONDS_PER_TICK; 
+                        totalStats.total_vc_minutes += MINUTES_PER_TICK;
+                        level.totalVCTime += SECONDS_PER_TICK; 
                         statsChanged = true;
                     }
                     if (member.voice.streaming) {
