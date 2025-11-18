@@ -357,7 +357,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
                 winnerData.mora += finalWinnings;
                 setScore.run(winnerData);
 
-                let bonusString = bonus > 0 ? `\n+ **${bonus}** ${EMOJI_MORA} (بوناس)` : "";
+                let bonusString = bonus > 0 ? `\n+ **${bonus}** ${EMOJI_MORA}` : "";
 
                 const winEmbed = new EmbedBuilder()
                     .setTitle(`✥ الـفـائـز ${msg.member.displayName}!`)
