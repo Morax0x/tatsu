@@ -1,20 +1,13 @@
 {
-  "name": "discord.js-leveling-bot",
+  "name": "emorax-bot",
   "version": "1.0.0",
-  "description": "> A Discord Leveling Bot built with Discord.js and Canvas made by roefinoavrililo",
+  "description": "A Discord Leveling Bot built with Discord.js and Canvas",
   "main": "index.js",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/roefinoavrililo/Discord.JS-Leveling-Bot.git"
+  "scripts": {
+    "start": "node index.js"
   },
-  "author": "roefinoavrililo",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/roefinoavrililo/Discord.JS-Leveling-Bot/issues"
-  },
-  "homepage": "https://github.com/roefinoavrililo/Discord.JS-Leveling-Bot#readme",
   "engines": {
-    "node": ">=16.9.0"
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "@discordjs/builders": "^1.13.0",
@@ -23,8 +16,7 @@
     "canvacord": "^5.4.10",
     "canvas": "^2.11.2",
     "discord-card-canvas": "^2.0.1",
-    "discord.js": "^14.25.0",
-    "fs": "0.0.1-security",
-    "node-cron": "^4.2.1"
+    "discord.js": "^14.14.1",
+    "node-cron": "^3.0.3"
   }
 }
