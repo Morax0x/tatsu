@@ -3,8 +3,7 @@ const { calculateMoraBuff } = require('../../streak-handler.js');
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
 const MIN_BET = 25;
-const MAX_BET = 100;
-const MAX_PLAYERS = 5;
+const MAX_BET = 100000; // رفعت الحد الأقصى للرهان ليكون منطقياً أكثر
 const SOLO_ATTEMPTS = 7;
 const COOLDOWN_MS = 1 * 60 * 60 * 1000;
 
@@ -34,7 +33,7 @@ module.exports = {
         .setDescription('تحدي البوت (فردي) أو أصدقائك (جماعي) في لعبة تخمين الرقم.')
         .addIntegerOption(option =>
             option.setName('الرهان')
-                .setDescription(`المبلغ الذي تريد المراهنة به (بين ${MIN_BET} و ${MAX_BET})`)
+                .setDescription(`المبلغ الذي تريد المراهنة به`)
                 .setRequired(true)
                 .setMinValue(MIN_BET)
                 .setMaxValue(MAX_BET))
@@ -67,7 +66,8 @@ module.exports = {
 
                 bet = interaction.options.getInteger('الرهان');
 
-                for (let i = 1; i <= MAX_PLAYERS; i++) {
+                // جمع الخصوم من الخيارات (حتى 5، ويمكن زيادتها في الكود إذا أردت)
+                for (let i = 1; i <= 5; i++) {
                     const user = interaction.options.getUser(`الخصم${i}`);
                     if (user) {
                         const member = await guild.members.fetch(user.id).catch(() => null);
@@ -261,10 +261,7 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
 async function playChallenge(channel, author, opponents, bet, authorData, getScore, setScore, sql, replyFunction) {
     const channelId = channel.id;
 
-    if (opponents.size > MAX_PLAYERS) {
-        activeGames.delete(channelId);
-        return replyFunction({ content: `لا يمكنك تحدي أكثر من ${MAX_PLAYERS} لاعبين في نفس الوقت.`, ephemeral: true });
-    }
+    // (تمت إزالة التحقق من الحد الأقصى)
 
     const opponentNames = opponents.map(o => o.displayName).join(', ');
     const requiredOpponents = opponents.map(o => o.id);
@@ -307,51 +304,20 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
     const acceptedOpponents = new Set();
     const challengeCollector = challengeMsg.createMessageComponentCollector({ time: 60000 });
 
-    challengeCollector.on('collect', async i => {
-        if (!requiredOpponents.includes(i.user.id)) {
-            return i.reply({
-                content: `✥ هـاه؟ التحدي مرسل الى ${opponentNames} مو لـك <a:Danceowo:1435658634750201876>`,
-                ephemeral: true
-            });
-        }
-
-        if (i.customId === 'guess_pvp_decline') {
-            challengeCollector.stop('decline');
-            return i.update({
-                content: `✬ رفـض ${i.member.displayName} التـحدي الجبـان خايـف على المـورا الي عنـده <:mirkk:1435648219488190525>`,
-                embeds: [],
-                components: []
-            });
-        }
-
-        if (i.customId === 'guess_pvp_accept') {
-            acceptedOpponents.add(i.member);
-            await i.reply({ content: `✦ تـم قبول التحدي! ننتـظر باقي اللاعبين... <a:HypedDance:1435572391190204447>`, ephemeral: true });
-        }
-    });
-
-    challengeCollector.on('end', async (collected, reason) => {
-        if (reason === 'decline') {
-            activeGames.delete(channelId);
-            setScore.run(authorData);
-            return;
-        }
-
-        if (acceptedOpponents.size < 1) {
-            activeGames.delete(channelId);
-            setScore.run(authorData);
-            return challengeMsg.edit({ content: `✶ انتـهـى الـوقـت لـم يقـبل الجـميع التحـدي <:mirkk:1435648219488190525> !`, embeds: [], components: [] });
-        }
-
+    // دالة لبدء اللعبة
+    const startGame = async () => {
+        challengeCollector.stop('started'); // إيقاف كولكتر القبول
+        
         const finalPlayers = [author, ...acceptedOpponents.values()];
         const finalPlayerIDs = finalPlayers.map(p => p.id);
 
+        // خصم المورا من الجميع
         for (const player of finalPlayers) {
             let data = getScore.get(player.id, channel.guild.id);
             if (!data) data = { ...channel.client.defaultData, user: player.id, guild: channel.guild.id };
             data.mora -= bet;
             if (player.id !== author.id) {
-                 data.lastGuess = now;
+                 data.lastGuess = Date.now();
             }
             setScore.run(data);
         }
@@ -360,7 +326,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
 
         const gameEmbed = new EmbedBuilder()
             .setTitle('🏁 بدأ السباق!')
-            .setDescription(`✶ قبـل ${acceptedOpponents.map(p => p.displayName).join(', ')} التـحدي! ابـدأوا التـخمـين!\n\nالرقم السري بين 1 و 100. أول من يخمنه يربح **${totalPot.toLocaleString()}** ${EMOJI_MORA}!\n(لديكم 60 ثانية)`)
+            .setDescription(`✶ قبل الجميع التـحدي! ابـدأوا التـخمـين!\n\nالرقم السري بين 1 و 100. أول من يخمنه يربح **${totalPot.toLocaleString()}** ${EMOJI_MORA}!\n(لديكم 60 ثانية)`)
             .setColor("Blue")
             .setImage('https://i.postimg.cc/Vs9bp19q/download-3.gif');
 
@@ -386,8 +352,6 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
                 let bonusString = "";
                 if (bonus > 0) {
                     bonusString = `\n+ **${bonus}** ${EMOJI_MORA} `;
-                } else if (bonus < 0) {
-                    bonusString = `\n- **${Math.abs(bonus)}** ${EMOJI_MORA} `;
                 }
 
                 const winEmbed = new EmbedBuilder()
@@ -407,7 +371,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
             }
         });
 
-        collector.on('end', (collected, reason) => {
+        gameCollector.on('end', (collected, reason) => {
             activeGames.delete(channelId);
             if (reason !== 'win') {
                 const loseEmbed = new EmbedBuilder()
@@ -425,5 +389,53 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
                 }
             }
         });
+    };
+
+    challengeCollector.on('collect', async i => {
+        if (!requiredOpponents.includes(i.user.id)) {
+            return i.reply({
+                content: `✥ هـاه؟ التحدي مرسل الى ${opponentNames} مو لـك <a:Danceowo:1435658634750201876>`,
+                ephemeral: true
+            });
+        }
+
+        if (i.customId === 'guess_pvp_decline') {
+            challengeCollector.stop('decline');
+            return i.update({
+                content: `✬ رفـض ${i.member.displayName} التـحدي الجبـان خايـف على المـورا الي عنـده <:mirkk:1435648219488190525>`,
+                embeds: [],
+                components: []
+            });
+        }
+
+        if (i.customId === 'guess_pvp_accept') {
+            if (!acceptedOpponents.has(i.member)) {
+                acceptedOpponents.add(i.member);
+                await i.reply({ content: `✦ تـم قبول التحدي! <a:HypedDance:1435572391190204447>`, ephemeral: true });
+                
+                // ( 🌟🌟🌟 التصحيح هنا: التحقق إذا قبل الجميع لبدء اللعبة فوراً 🌟🌟🌟 )
+                if (acceptedOpponents.size === requiredOpponents.length) {
+                    await startGame();
+                }
+            } else {
+                 await i.reply({ content: `أنت قبلت بالفعل!`, ephemeral: true });
+            }
+        }
+    });
+
+    challengeCollector.on('end', async (collected, reason) => {
+        if (reason === 'decline') {
+            activeGames.delete(channelId);
+            // إعادة العداد لصاحب التحدي (لأنه لم يلعب)
+            // authorData.lastGuess -= COOLDOWN_MS; // اختياري
+            // setScore.run(authorData);
+            return;
+        }
+
+        // إذا انتهى الوقت ولم يقبل الجميع (ولم تبدأ اللعبة بعد)
+        if (reason !== 'started') {
+            activeGames.delete(channelId);
+            return challengeMsg.edit({ content: `✶ انتـهـى الـوقـت لـم يقـبل الجـميع التحـدي <:mirkk:1435648219488190525> !`, embeds: [], components: [] });
+        }
     });
 }
