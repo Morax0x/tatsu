@@ -20,19 +20,21 @@ module.exports = {
     async execute(interactionOrMessage, args) {
 
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, guild, client, member;
+        let interaction, message, guild, client, member, user; // (تم إضافة user هنا)
 
         if (isSlash) {
             interaction = interactionOrMessage;
             guild = interaction.guild;
             client = interaction.client;
             member = interaction.member;
+            user = interaction.user; // (تعريف المستخدم للسلاش)
             await interaction.deferReply({ ephemeral: true });
         } else {
             message = interactionOrMessage;
             guild = message.guild;
             client = message.client;
             member = message.member;
+            user = message.author; // (تعريف المستخدم للرسائل)
         }
 
         const sql = client.sql;
@@ -72,8 +74,9 @@ module.exports = {
             return replyError('❌ لم أتمكن من العثور على القناة المحددة!');
         }
 
-        if (channel.type !== 0) {
-            return replyError('❌ يجب أن تكون القناة المحددة قناة نصية!');
+        // التأكد من نوع القناة (0 = نصية، 5 = إعلانات)
+        if (channel.type !== 0 && channel.type !== 5) {
+            return replyError('❌ يجب أن تكون القناة المحددة قناة نصية أو إعلانية!');
         }
 
         const botPerms = channel.permissionsFor(guild.members.me);
@@ -82,14 +85,20 @@ module.exports = {
         }
 
         try {
+            // التأكد من وجود الجدول في قاعدة البيانات (للاحتياط)
+            sql.prepare(`CREATE TABLE IF NOT EXISTS settings (guild TEXT PRIMARY KEY, questChannelID TEXT)`).run();
+
+            // التحقق إذا كان السجل موجوداً أم لا
             let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id);
 
             if (!settings) {
-                sql.prepare("INSERT INTO settings (guild, questChannelID) VALUES (?, ?)")
-                   .run(guild.id, channel.id);
+                // إذا لم يكن موجوداً، ننشئ صفاً جديداً
+                // ملاحظة: قد تحتاج لإضافة باقي الأعمدة الافتراضية إذا كان جدولك يحتوي على أعمدة أخرى غير قابلة للقيم الفارغة (NOT NULL)
+                // لكن عادة في sqlite القيم الافتراضية تكون null، وهذا جيد
+                sql.prepare("INSERT INTO settings (guild, questChannelID) VALUES (?, ?)").run(guild.id, channel.id);
             } else {
-                sql.prepare("UPDATE settings SET questChannelID = ? WHERE guild = ?")
-                   .run(channel.id, guild.id);
+                // إذا كان موجوداً، نحدثه
+                sql.prepare("UPDATE settings SET questChannelID = ? WHERE guild = ?").run(channel.id, guild.id);
             }
 
             const embed = new EmbedBuilder()
@@ -101,6 +110,7 @@ module.exports = {
 
             await reply({ embeds: [embed] });
 
+            // إرسال رسالة ترحيبية للقناة للتأكد من الصلاحيات
             const welcomeEmbed = new EmbedBuilder()
                 .setColor(0xFEE75C)
                 .setTitle('🎉 مرحباً بكم في قناة المهام!')
@@ -111,7 +121,20 @@ module.exports = {
 
         } catch (err) {
             console.error("Error in setquestchannel command:", err);
-            return replyError('❌ حدث خطأ أثناء تعيين القناة!');
+            
+            // في حال كان الخطأ بسبب عدم وجود العمود في الجدول القديم
+            if (err.message.includes("no such column")) {
+                try {
+                    // محاولة إضافة العمود وإعادة المحاولة
+                    sql.prepare("ALTER TABLE settings ADD COLUMN questChannelID TEXT;").run();
+                    sql.prepare("UPDATE settings SET questChannelID = ? WHERE guild = ?").run(channel.id, guild.id);
+                    return reply('✅ تم تحديث قاعدة البيانات وتعيين القناة بنجاح!');
+                } catch (alterErr) {
+                    console.error("Failed to alter table:", alterErr);
+                }
+            }
+
+            return replyError('❌ حدث خطأ أثناء تعيين القناة! (راجع الكونسول للتفاصيل)');
         }
     }
 };
