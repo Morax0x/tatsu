@@ -1,11 +1,11 @@
-const { Events, PermissionsBitField, ChannelType } = require("discord.js");
+const { Events, PermissionsBitField, ChannelType, EmbedBuilder } = require("discord.js");
 const { handleStreakMessage, calculateBuffMultiplier, handleMediaStreakMessage } = require("../streak-handler.js");
 const { checkPermissions, checkCooldown } = require("../permission-handler.js");
 
 // --- الثوابت ---
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// --- القوالب الافتراضية (لتجنب الأخطاء الحسابية) ---
+// --- القوالب الافتراضية ---
 const completeDefaultLevelData = {
     xp: 0, level: 1, totalXP: 0, mora: 0,
     lastWork: 0, lastDaily: 0, dailyStreak: 0, 
@@ -23,7 +23,6 @@ const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 
 
 // --- دوال المساعدة ---
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
-
 function getWeekStartDateString() {
     const now = new Date();
     const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
@@ -31,8 +30,6 @@ function getWeekStartDateString() {
     friday.setUTCHours(0, 0, 0, 0); 
     return friday.toISOString().split('T')[0];
 }
-
-// دالة لدمج القيم الافتراضية مع القيم الموجودة لتجنب الـ NaN
 function safeMerge(base, defaults) {
     const result = { ...base };
     for (const key in defaults) {
@@ -42,8 +39,62 @@ function safeMerge(base, defaults) {
 }
 
 // ==================================================================
-// 🌟🌟 المحرك الرئيسي لتتبع المهام والإنجازات 🌟🌟
+// 🌟🌟 دوال النظام الملحقة بالعميل (Client Functions) 🌟🌟
 // ==================================================================
+
+// 1. دالة إرسال رسالة الترقية (معدلة لتقرأ من جدول channel)
+const sendLevelUpMessage = async function(client, messageOrInteraction, member, newLevel, oldLevel, xpData) {
+    try {
+        const guild = messageOrInteraction.guild;
+        const sql = client.sql;
+
+        // ✅ البحث عن القناة المخصصة للفل في جدول 'channel'
+        let targetChannel = null;
+        let levelChannelData = sql.prepare("SELECT channel FROM channel WHERE guild = ?").get(guild.id);
+
+        if (levelChannelData && levelChannelData.channel && levelChannelData.channel !== 'Default') {
+            targetChannel = guild.channels.cache.get(levelChannelData.channel);
+        }
+
+        // إذا لم يتم تحديد قناة خاصة، استخدم القناة الحالية
+        if (!targetChannel) {
+            targetChannel = messageOrInteraction.channel;
+        }
+
+        // إعداد الرسالة (Embed)
+        let customSettings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id);
+        let levelUpContent = null;
+        let embed;
+
+        if (customSettings && customSettings.lvlUpTitle) {
+            function antonymsLevelUp(string) {
+                return string.replace(/{member}/gi, `${member}`).replace(/{level}/gi, `${newLevel}`).replace(/{level_old}/gi, `${oldLevel}`).replace(/{xp}/gi, `${xpData.xp}`).replace(/{totalXP}/gi, `${xpData.totalXP}`);
+            }
+            embed = new EmbedBuilder()
+                .setTitle(antonymsLevelUp(customSettings.lvlUpTitle))
+                .setDescription(antonymsLevelUp(customSettings.lvlUpDesc.replace(/\\n/g, '\n')))
+                .setColor(customSettings.lvlUpColor || "Random")
+                .setTimestamp();
+            if (customSettings.lvlUpImage) { embed.setImage(antonymsLevelUp(customSettings.lvlUpImage)); }
+            if (customSettings.lvlUpMention == 1) { levelUpContent = `${member}`; }
+        } else {
+            embed = new EmbedBuilder()
+                .setAuthor({ name: member.user.tag, iconURL: member.user.displayAvatarURL({ dynamic: true }) })
+                .setColor("Random")
+                .setDescription(`**Congratulations** ${member}! You have now leveled up to **level ${newLevel}**`);
+        }
+
+        // التأكد من الصلاحيات قبل الإرسال
+        if (targetChannel) {
+            const perms = targetChannel.permissionsFor(guild.members.me);
+            if (perms.has(PermissionsBitField.Flags.SendMessages) && perms.has(PermissionsBitField.Flags.ViewChannel)) {
+                await targetChannel.send({ content: levelUpContent, embeds: [embed] }).catch(() => {});
+            }
+        }
+    } catch (err) { console.error(`[LevelUp Error]: ${err.message}`); }
+};
+
+// 2. دالة تتبع الإحصائيات (المحرك الرئيسي)
 async function trackMessageStats(message, client) {
     const sql = client.sql;
     try {
@@ -56,65 +107,42 @@ async function trackMessageStats(message, client) {
         const weeklyStatsId = `${authorID}-${guildID}-${weekStartDateStr}`;
         const totalStatsId = `${authorID}-${guildID}`;
 
-        // 1. جلب البيانات أو إنشاؤها
         let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID: authorID, guildID: guildID, date: dateStr };
         let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID: authorID, guildID: guildID, weekStartDate: weekStartDateStr };
         let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID: authorID, guildID: guildID };
 
-        // تطبيق القيم الافتراضية
         dailyStats = safeMerge(dailyStats, defaultDailyStats);
         weeklyStats = safeMerge(weeklyStats, defaultWeeklyStats);
         totalStats = safeMerge(totalStats, defaultTotalStats);
 
-        // 2. زيادة العدادات (يومي + أسبوعي + كلي) ✅ هنا كان سبب المشكلة سابقاً
-        
-        // --- الرسائل ---
-        dailyStats.messages++;
-        weeklyStats.messages++; 
-        totalStats.total_messages++;
+        dailyStats.messages++; weeklyStats.messages++; totalStats.total_messages++;
 
-        // --- المرفقات والصور ---
         if (message.attachments.size > 0) {
-            dailyStats.images++; 
-            weeklyStats.images++; 
-            totalStats.total_images++;
+            dailyStats.images++; weeklyStats.images++; totalStats.total_images++;
         }
-        
-        // --- الستيكرات ---
         if (message.stickers.size > 0) {
-            dailyStats.stickers++; 
-            weeklyStats.stickers++; 
-            totalStats.total_stickers++;
+            dailyStats.stickers++; weeklyStats.stickers++; totalStats.total_stickers++;
         }
-        
-        // --- الردود ---
         if (message.reference) { 
-            dailyStats.replies_sent++; 
-            weeklyStats.replies_sent++; 
-            totalStats.total_replies_sent++;
+            dailyStats.replies_sent++; weeklyStats.replies_sent++; totalStats.total_replies_sent++;
         }
 
-        // 3. الحفظ في قاعدة البيانات
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         client.setTotalStats.run(totalStats);
 
-        // 4. فحص اكتمال المهام فوراً
         if (client.checkQuests) {
             await client.checkQuests(client, message.member, dailyStats, 'daily', dateStr);
             await client.checkQuests(client, message.member, weeklyStats, 'weekly', weekStartDateStr);
             await client.checkAchievements(client, message.member, null, totalStats);
         }
 
-        // 5. تتبع المنشن (للشخص المذكور)
         if (message.mentions.users.size > 0) {
             message.mentions.users.forEach(async (mentionedUser) => {
                 if (mentionedUser.bot || mentionedUser.id === authorID) return;
-
                 const m_dailyId = `${mentionedUser.id}-${guildID}-${dateStr}`;
                 const m_weeklyId = `${mentionedUser.id}-${guildID}-${weekStartDateStr}`;
                 const m_totalId = `${mentionedUser.id}-${guildID}`;
-
                 let m_daily = client.getDailyStats.get(m_dailyId) || { id: m_dailyId, userID: mentionedUser.id, guildID: guildID, date: dateStr };
                 let m_weekly = client.getWeeklyStats.get(m_weeklyId) || { id: m_weeklyId, userID: mentionedUser.id, guildID: guildID, weekStartDate: weekStartDateStr };
                 let m_total = client.getTotalStats.get(m_totalId) || { id: m_totalId, userID: mentionedUser.id, guildID: guildID };
@@ -123,13 +151,9 @@ async function trackMessageStats(message, client) {
                 m_weekly = safeMerge(m_weekly, defaultWeeklyStats);
                 m_total = safeMerge(m_total, defaultTotalStats);
 
-                m_daily.mentions_received++;
-                m_weekly.mentions_received++;
-                m_total.total_mentions_received++;
+                m_daily.mentions_received++; m_weekly.mentions_received++; m_total.total_mentions_received++;
 
-                client.setDailyStats.run(m_daily);
-                client.setWeeklyStats.run(m_weekly);
-                client.setTotalStats.run(m_total);
+                client.setDailyStats.run(m_daily); client.setWeeklyStats.run(m_weekly); client.setTotalStats.run(m_total);
 
                 const mentionedMember = message.guild.members.cache.get(mentionedUser.id);
                 if (mentionedMember && client.checkQuests) {
@@ -142,6 +166,10 @@ async function trackMessageStats(message, client) {
     } catch (err) { console.error("Error in trackMessageStats:", err); }
 }
 
+
+// ==================================================================
+// 🚀 الـ EXECUTE الرئيسي
+// ==================================================================
 module.exports = {
     name: Events.MessageCreate,
     async execute(message) {
@@ -153,7 +181,6 @@ module.exports = {
             let settings;
             try { settings = sql.prepare("SELECT bumpChannelID FROM settings WHERE guild = ?").get(message.guild.id); } catch (err) { settings = null; }
             const BUMP_CHANNEL_ID = settings ? settings.bumpChannelID : null;
-
             if (message.author.id === DISBOARD_BOT_ID && BUMP_CHANNEL_ID && message.channel.id === BUMP_CHANNEL_ID) {
                 if (message.embeds.length > 0 && message.embeds[0].description) {
                     const embedDesc = message.embeds[0].description;
@@ -163,16 +190,13 @@ module.exports = {
                         const userID = match[1];
                         try {
                             const member = await message.guild.members.fetch(userID);
-                            if (!member) return;
-                            // احتساب بمب ديسبورد
-                            if(client.incrementQuestStats) await client.incrementQuestStats(userID, message.guild.id, 'disboard_bumps');
+                            if (member && client.incrementQuestStats) await client.incrementQuestStats(userID, message.guild.id, 'disboard_bumps');
                         } catch (err) { console.error("[Disboard Bump Error]", err); }
                     }
                 }
             }
             return; 
         }
-
         if (!message.guild) return; 
 
         // جلب الإعدادات
@@ -189,7 +213,6 @@ module.exports = {
                 const shortcutWord = argsRaw[0].toLowerCase();
                 const shortcutArgs = argsRaw.slice(1);
                 const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
-
                 if (shortcut) {
                     const command = client.commands.get(shortcut.commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(shortcut.commandName));
                     if (command) {
@@ -207,7 +230,7 @@ module.exports = {
             }
         } catch (err) {}
 
-        // 3. القنوات الخاصة (كازينو / بلاغات)
+        // 3. القنوات الخاصة
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
@@ -227,7 +250,7 @@ module.exports = {
             }
         }
 
-        // 4. الأوامر العادية (Prefix)
+        // 4. البريفكس
         let Prefix = "-";
         try {
             const prefixRow = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id);
@@ -238,7 +261,6 @@ module.exports = {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
-
             if (command) {
                 args.prefix = Prefix;
                 let isAllowed = false;
@@ -254,7 +276,6 @@ module.exports = {
                         }
                     } catch (err) { isAllowed = true; }
                 }
-
                 if (isAllowed) {
                     if (!checkPermissions(message, command)) return;
                     const cooldownMessage = checkCooldown(message, command);
@@ -268,17 +289,12 @@ module.exports = {
             }
         }
 
-        // ====================================================
-        // 5. تشغيل أنظمة التتبع (المهام، الستريك، اللفل)
-        // ====================================================
-
-        // أ. البلاك ليست
+        // 5. الأنظمة التلقائية
         try {
             let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
         } catch (err) {}
 
-        // ب. مهام خاصة (عد + مياو)
         try {
             if (settings && settings.countingChannelID && message.channel.id === settings.countingChannelID) {
                 setTimeout(async () => {
@@ -291,27 +307,20 @@ module.exports = {
             if (message.content.toLowerCase().includes('مياو')) {
                 if(client.incrementQuestStats) await client.incrementQuestStats(message.author.id, message.guild.id, 'meow_count');
             }
-        } catch (err) { console.error("[Quest Message Tracker Error]", err); }
+        } catch (err) {}
 
-        // ج. ستريك الميديا
         try {
             const isMediaChannel = sql.prepare("SELECT * FROM media_streak_channels WHERE guildID = ? AND channelID = ?").get(message.guild.id, message.channel.id);
             if (isMediaChannel) {
                 const hasMedia = message.attachments.size > 0 || message.embeds.some(e => e.image || e.video);
-                if (hasMedia) {
-                    await handleMediaStreakMessage(message);
-                    return; // توقف هنا في قنوات الميديا
-                }
+                if (hasMedia) { await handleMediaStreakMessage(message); return; }
             }
         } catch (err) {}
 
-        // د. ستريك الشات العادي
         try { await handleStreakMessage(message); } catch (err) {}
-
-        // هـ. تتبع المهام (تشغيل الدالة الجديدة)
         try { await trackMessageStats(message, client); } catch (err) {}
 
-        // و. نظام الـ XP
+        // 6. نظام الـ XP
         try {
             let level = client.getLevel.get(message.author.id, message.guild.id);
             if (!level) level = { ...(client.defaultData || {}), ...completeDefaultLevelData, user: message.author.id, guild: message.guild.id };
@@ -335,7 +344,9 @@ module.exports = {
                     level.xp -= nextXP;
                     level.level += 1;
                     const newLevel = level.level;
-                    if(client.sendLevelUpMessage) await client.sendLevelUpMessage(message, message.member, newLevel, oldLevel, level);
+                    
+                    // ✅ استخدام الدالة المحلية لإرسال اللفل أب للقناة الصحيحة
+                    await sendLevelUpMessage(client, message, message.member, newLevel, oldLevel, level);
                 }
                 client.setLevel.run(level);
                 client.talkedRecently.set(message.author.id, Date.now() + getCooldownfromDB);
