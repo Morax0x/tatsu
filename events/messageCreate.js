@@ -3,10 +3,10 @@ const { handleStreakMessage, calculateBuffMultiplier, handleMediaStreakMessage }
 const { checkPermissions, checkCooldown } = require("../permission-handler.js");
 const { getReportSettings, hasReportPermission, sendReportError } = require("../handlers/report-handler.js");
 
-// (المتغيرات التي يحتاجها كود البومب)
+// (المتغيرات)
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// (دوال المساعدة التي يحتاجها هذا الملف)
+// (دوال المساعدة)
 function getTodayDateString() {
     return new Date().toISOString().split('T')[0];
 }
@@ -20,7 +20,7 @@ function getWeekStartDateString() {
     return friday.toISOString().split('T')[0];
 }
 
-// (دالة تتبع الإحصائيات - النسخة المحدثة)
+// (دالة تتبع الإحصائيات)
 async function trackMessageStats(message, client) {
     const sql = client.sql;
     try {
@@ -187,17 +187,20 @@ module.exports = {
             reportSettings = null;
         }
 
-        // (معالج الاختصارات)
+        // ====================================================
+        // 🚀 نظام الاختصارات (يعمل بدون بريفكس) - 🌟 تم إضافته هنا 🌟
+        // ====================================================
         try {
-            const shortcutArgsRaw = message.content.trim().split(/ +/);
-            const shortcutWord = shortcutArgsRaw.shift().toLowerCase(); 
-            const shortcutArgs = shortcutArgsRaw; 
+            const argsRaw = message.content.trim().split(/ +/);
+            const shortcutWord = argsRaw[0].toLowerCase(); 
+            const shortcutArgs = argsRaw.slice(1); 
 
             const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
 
             if (shortcut) {
                 const command = client.commands.get(shortcut.commandName);
                 if (command) {
+                    // التحقق من الصلاحيات والكول داون
                     if (!checkPermissions(message, command)) return;
                     const cooldownMessage = checkCooldown(message, command);
                     if (cooldownMessage) {
@@ -206,18 +209,22 @@ module.exports = {
                         }
                         return;
                     }
+                    // تنفيذ الأمر
                     try {
-                        command.execute(message, shortcutArgs); 
+                        await command.execute(message, shortcutArgs); 
+                        console.log(`[Shortcut] Executed ${command.name} via shortcut "${shortcutWord}"`);
                     } catch (error) {
                         console.error(error);
-                        message.reply("There was an error trying to execute that shortcut!");
+                        message.reply("حدث خطأ أثناء تنفيذ الاختصار!");
                     }
-                    return;
+                    return; // نتوقف هنا لكي لا ينفذ شيء آخر
                 }
             }
         } catch (err) {
-            console.error("[Shortcut Handler Error]", err);
+            // تجاهل الأخطاء البسيطة
         }
+        // ====================================================
+
 
         // (معالج قناة الكازينو)
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
