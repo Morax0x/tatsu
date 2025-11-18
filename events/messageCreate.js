@@ -20,7 +20,7 @@ function getWeekStartDateString() {
     return friday.toISOString().split('T')[0];
 }
 
-// (دالة تتبع الإحصائيات)
+// (دالة تتبع الإحصائيات - 🌟 تم إصلاح الخطأ هنا 🌟)
 async function trackMessageStats(message, client) {
     const sql = client.sql;
     try {
@@ -33,9 +33,34 @@ async function trackMessageStats(message, client) {
         const weeklyStatsId = `${authorID}-${guildID}-${weekStartDateStr}`;
         const totalStatsId = `${authorID}-${guildID}`;
 
-        let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID: authorID, guildID: guildID, date: dateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-        let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID: authorID, guildID: guildID, weekStartDate: weekStartDateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-        let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID: authorID, guildID: guildID, total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
+        // 1. جلب البيانات أو إنشاء بيانات جديدة
+        let dailyStats = client.getDailyStats.get(dailyStatsId);
+        if (!dailyStats) {
+            dailyStats = { id: dailyStatsId, userID: authorID, guildID: guildID, date: dateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
+        }
+
+        let weeklyStats = client.getWeeklyStats.get(weeklyStatsId);
+        if (!weeklyStats) {
+            weeklyStats = { id: weeklyStatsId, userID: authorID, guildID: guildID, weekStartDate: weekStartDateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
+        }
+
+        let totalStats = client.getTotalStats.get(totalStatsId);
+        if (!totalStats) {
+            totalStats = { id: totalStatsId, userID: authorID, guildID: guildID, total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
+        }
+
+        // 🌟🌟🌟 إصلاح القيم المفقودة (هام جداً) 🌟🌟🌟
+        // هذا يمنع خطأ Missing named parameter
+        if (dailyStats.replies_sent === undefined) dailyStats.replies_sent = 0;
+        if (dailyStats.mentions_received === undefined) dailyStats.mentions_received = 0;
+        
+        if (weeklyStats.replies_sent === undefined) weeklyStats.replies_sent = 0;
+        if (weeklyStats.mentions_received === undefined) weeklyStats.mentions_received = 0;
+        
+        if (totalStats.total_replies_sent === undefined) totalStats.total_replies_sent = 0;
+        if (totalStats.total_mentions_received === undefined) totalStats.total_mentions_received = 0;
+        // 🌟🌟🌟 نهاية الإصلاح 🌟🌟🌟
+
 
         dailyStats.messages += 1;
         weeklyStats.messages += 1;
@@ -73,9 +98,20 @@ async function trackMessageStats(message, client) {
                 const m_weeklyId = `${mentionedUser.id}-${guildID}-${weekStartDateStr}`;
                 const m_totalId = `${mentionedUser.id}-${guildID}`;
 
-                let m_daily = client.getDailyStats.get(m_dailyId) || { id: m_dailyId, userID: mentionedUser.id, guildID: guildID, date: dateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-                let m_weekly = client.getWeeklyStats.get(m_weeklyId) || { id: m_weeklyId, userID: mentionedUser.id, guildID: guildID, weekStartDate: weekStartDateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-                let m_total = client.getTotalStats.get(m_totalId) || { id: m_totalId, userID: mentionedUser.id, guildID: guildID, total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
+                let m_daily = client.getDailyStats.get(m_dailyId);
+                if(!m_daily) m_daily = { id: m_dailyId, userID: mentionedUser.id, guildID: guildID, date: dateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
+                
+                let m_weekly = client.getWeeklyStats.get(m_weeklyId);
+                if(!m_weekly) m_weekly = { id: m_weeklyId, userID: mentionedUser.id, guildID: guildID, weekStartDate: weekStartDateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
+                
+                let m_total = client.getTotalStats.get(m_totalId);
+                if(!m_total) m_total = { id: m_totalId, userID: mentionedUser.id, guildID: guildID, total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
+
+                // 🌟 إصلاح القيم المفقودة للمنشن أيضاً 🌟
+                if (m_daily.mentions_received === undefined) m_daily.mentions_received = 0;
+                if (m_weekly.mentions_received === undefined) m_weekly.mentions_received = 0;
+                if (m_total.total_mentions_received === undefined) m_total.total_mentions_received = 0;
+                if (m_daily.replies_sent === undefined) m_daily.replies_sent = 0; // للتأكد فقط
 
                 m_daily.mentions_received += 1;
                 m_weekly.mentions_received += 1;
@@ -188,7 +224,7 @@ module.exports = {
         }
 
         // ====================================================
-        // 🚀 نظام الاختصارات (يعمل بدون بريفكس) - 🌟 تم إضافته هنا 🌟
+        // 🚀 نظام الاختصارات (يعمل بدون بريفكس)
         // ====================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
