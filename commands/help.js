@@ -43,15 +43,18 @@ function getArabicDescription(cmd) {
     return cmd.description || 'لا يوجد وصف';
 }
 
+// 🌟 دالة جلب الاسم العربي من الـ Aliases 🌟
 function getCmdName(commands, name) {
     const cmd = commands.get(name);
     if (!cmd) return name; 
 
+    // نبحث عن أول اسم مستعار يحتوي على حروف عربية
     let arabicAlias = null;
     if (cmd.aliases && Array.isArray(cmd.aliases)) {
         arabicAlias = cmd.aliases.find(a => /[\u0600-\u06FF]/.test(a));
     }
 
+    // إذا وجدنا اسماً عربياً نستخدمه، وإلا نستخدم الاسم الأصلي
     return arabicAlias || cmd.name;
 }
 
@@ -60,9 +63,9 @@ function buildMainMenuEmbed(client) {
     const desc = `
 **❖ الـقـائمـة الرئـيسـيـة**
 
-✶** ${getCmdName(commands, 'مستوى')}: ** \`يعرض مستواك في السيرفر\`
-✶** ${getCmdName(commands, 'توب')}: ** \`لوحـة الصدار لـ اعلى لمصنفين في السيرفر\`
-✶** ${getCmdName(commands, 'بروفايل')}: ** \`اظهار البروفايل الشخصي وأهم معلوماتك\`
+✶** ${getCmdName(commands, 'level')}: ** \`يعرض مستواك في السيرفر\`
+✶** ${getCmdName(commands, 'top')}: ** \`لوحـة الصدار لـ اعلى لمصنفين في السيرفر\`
+✶** ${getCmdName(commands, 'profile')}: ** \`اظهار البروفايل الشخصي وأهم معلوماتك\`
     `;
 
     return new EmbedBuilder()
@@ -109,7 +112,6 @@ function buildCasinoEmbed(client) {
 }
 
 function buildAdminSettingsEmbed(client) {
-    const commands = client.commands;
     const settingsList = client.commands.filter(cmd => 
         (cmd.category === 'Leveling' && (
             cmd.name.startsWith('set-') || 
@@ -147,7 +149,6 @@ function buildAdminSettingsEmbed(client) {
 }
 
 function buildAdminManagementEmbed(client) {
-    const commands = client.commands;
     const managementList = client.commands.filter(cmd => 
         (cmd.category === 'Economy' && cmd.name.endsWith('-admin')) ||
         cmd.name === 'xp' || 
@@ -193,7 +194,7 @@ module.exports = {
                 cmd.name.toLowerCase().includes(focusedValue) ||
                 (cmd.aliases && cmd.aliases.some(a => a.toLowerCase().includes(focusedValue)))
             ).map(cmd => ({
-                name: `${cmd.name} (${getArabicDescription(cmd).substring(0, 50)}...)`,
+                name: `${getCmdName(commands, cmd.name)} (${getArabicDescription(cmd).substring(0, 50)}...)`,
                 value: cmd.name
             }));
 
@@ -205,22 +206,20 @@ module.exports = {
 
     async execute(interactionOrMessage, args) {
 
-        const isSlash = !!!!interactionOrMessage.isChatInputCommand;;
-        let interaction, message, guild, client, user, member;
+        const isSlash = !!interactionOrMessage.isChatInputCommand;
+        let interaction, message, guild, client, user;
 
         if (isSlash) {
             interaction = interactionOrMessage;
             guild = interaction.guild;
             client = interaction.client;
             user = interaction.user;
-            member = interaction.member;
             await interaction.deferReply();
         } else {
             message = interactionOrMessage;
             guild = message.guild;
             client = message.client;
             user = message.author;
-            member = message.member;
         }
 
         const reply = async (payload) => {
@@ -286,7 +285,7 @@ module.exports = {
             return reply({ embeds: [embed] });
         }
 
-        const isAdmin = member.permissions.has(PermissionsBitField.Flags.ManageGuild);
+        const isAdmin = guild.members.cache.get(user.id).permissions.has(PermissionsBitField.Flags.ManageGuild);
         let settings;
         try {
             settings = sql.prepare("SELECT casinoChannelID FROM settings WHERE guild = ?").get(guild.id);
