@@ -1,140 +1,93 @@
-const { EmbedBuilder, PermissionsBitField, SlashCommandBuilder } = require("discord.js");
+const { PermissionsBitField, SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('تحديد-قناة-المهام')
-        .setDescription('تعيين القناة التي سيتم إرسال إشعارات المهام والإنجازات فيها.')
+        .setDescription('تعيين القناة التي سيتم إرسال إشعارات المهام والإنجازات واللفل فيها.')
         .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild)
         .addChannelOption(option =>
             option.setName('القناة')
-            .setDescription('القناة التي ستستقبل الإشعارات')
+            .setDescription('اختر القناة')
             .setRequired(true)),
 
     name: 'setquestchannel',
-    aliases: ['sqc', 'تعيين-قناة-المهام'],
+    aliases: ['sqc', 'setach', 'تحديد-قناة'],
     category: "Admin",
-    description: 'تعيين القناة التي سيتم إرسال إشعارات المهام والإنجازات فيها',
-    usage: '-setquestchannel <#channel>',
-    permissions: ['ManageGuild'],
+    description: 'تعيين القناة التي سيتم إرسال إشعارات المهام والإنجازات فيها.',
 
     async execute(interactionOrMessage, args) {
-
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, guild, client, member, user; // (تم إضافة user هنا)
+        let interaction, message, guild, client, member, user, channel;
 
         if (isSlash) {
             interaction = interactionOrMessage;
             guild = interaction.guild;
             client = interaction.client;
             member = interaction.member;
-            user = interaction.user; // (تعريف المستخدم للسلاش)
+            user = interaction.user;
+            channel = interaction.options.getChannel('القناة');
             await interaction.deferReply({ ephemeral: true });
         } else {
             message = interactionOrMessage;
             guild = message.guild;
             client = message.client;
             member = message.member;
-            user = message.author; // (تعريف المستخدم للرسائل)
+            user = message.author;
+            channel = message.mentions.channels.first() || guild.channels.cache.get(args[0]);
         }
 
         const sql = client.sql;
-
-        const reply = async (payload) => {
-            if (isSlash) {
-                return interaction.editReply(payload);
-            } else {
-                return message.reply(payload);
-            }
+        const reply = async (content, embeds = []) => {
+            const payload = { content: content || null, embeds: embeds, ephemeral: true };
+            if (isSlash) return interaction.editReply(payload);
+            return message.reply(payload);
         };
 
-        const replyError = async (content) => {
-            const payload = { content, ephemeral: true };
-            if (isSlash) {
-                return interaction.editReply(payload);
-            } else {
-                return message.reply(payload);
-            }
-        };
-
+        // 1. التحقق من الصلاحيات
         if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-            return replyError('❌ ليس لديك صلاحية `إدارة السيرفر` لاستخدام هذا الأمر!');
+            return reply('❌ | تحتاج صلاحية `ManageGuild` لاستخدام هذا الأمر.');
         }
 
-        let channel;
-        if (isSlash) {
-            channel = interaction.options.getChannel('القناة');
-        } else {
-            if (!args[0]) {
-                return replyError('❌ يجب عليك تحديد القناة!\nمثال: `-setquestchannel #quests`');
-            }
-            channel = message.mentions.channels.first() || message.guild.channels.cache.get(args[0]);
-        }
+        // 2. التحقق من القناة
+        if (!channel) return reply('❌ | يرجى تحديد قناة صحيحة.');
+        if (!channel.isTextBased()) return reply('❌ | يجب أن تكون القناة نصية.');
 
-        if (!channel) {
-            return replyError('❌ لم أتمكن من العثور على القناة المحددة!');
-        }
-
-        // التأكد من نوع القناة (0 = نصية، 5 = إعلانات)
-        if (channel.type !== 0 && channel.type !== 5) {
-            return replyError('❌ يجب أن تكون القناة المحددة قناة نصية أو إعلانية!');
-        }
-
+        // 3. التحقق من صلاحيات البوت في القناة المختارة
         const botPerms = channel.permissionsFor(guild.members.me);
-        if (!botPerms.has(PermissionsBitField.Flags.SendMessages) || !botPerms.has(PermissionsBitField.Flags.ViewChannel)) {
-            return replyError('❌ ليس لدي صلاحية الإرسال في هذه القناة!');
+        if (!botPerms.has([PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.AttachFiles])) {
+            return reply(`⚠️ | ليس لدي صلاحيات كافية في ${channel}. تأكد من إعطائي: \`Send Messages\`, \`View Channel\`, \`Attach Files\`.`);
         }
 
         try {
-            // التأكد من وجود الجدول في قاعدة البيانات (للاحتياط)
+            // 4. إنشاء الجدول وتحديث البيانات (Upsert)
             sql.prepare(`CREATE TABLE IF NOT EXISTS settings (guild TEXT PRIMARY KEY, questChannelID TEXT)`).run();
+            
+            // محاولة إضافة العمود إذا كان الجدول قديماً وموجوداً
+            try { sql.prepare("ALTER TABLE settings ADD COLUMN questChannelID TEXT;").run(); } catch (e) {}
 
-            // التحقق إذا كان السجل موجوداً أم لا
-            let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id);
+            // الحفظ
+            sql.prepare("INSERT INTO settings (guild, questChannelID) VALUES (?, ?) ON CONFLICT(guild) DO UPDATE SET questChannelID = excluded.questChannelID").run(guild.id, channel.id);
 
-            if (!settings) {
-                // إذا لم يكن موجوداً، ننشئ صفاً جديداً
-                // ملاحظة: قد تحتاج لإضافة باقي الأعمدة الافتراضية إذا كان جدولك يحتوي على أعمدة أخرى غير قابلة للقيم الفارغة (NOT NULL)
-                // لكن عادة في sqlite القيم الافتراضية تكون null، وهذا جيد
-                sql.prepare("INSERT INTO settings (guild, questChannelID) VALUES (?, ?)").run(guild.id, channel.id);
-            } else {
-                // إذا كان موجوداً، نحدثه
-                sql.prepare("UPDATE settings SET questChannelID = ? WHERE guild = ?").run(channel.id, guild.id);
-            }
+            // 5. الرد بالنجاح
+            const successEmbed = new EmbedBuilder()
+                .setColor("Green")
+                .setDescription(`✅ **تم إعداد قناة المهام بنجاح!**\nسيتم إرسال التنبيهات في: ${channel}`);
+            
+            await reply(null, [successEmbed]);
 
-            const embed = new EmbedBuilder()
-                .setColor(0x57F287)
-                .setTitle('✅ تم تعيين قناة المهام بنجاح!')
-                .setDescription(`سيتم إرسال جميع إشعارات المهام والإنجازات في ${channel}`)
-                .setFooter({ text: `تم التعيين بواسطة ${user.tag}` })
-                .setTimestamp();
-
-            await reply({ embeds: [embed] });
-
-            // إرسال رسالة ترحيبية للقناة للتأكد من الصلاحيات
+            // 6. رسالة تجريبية للقناة
             const welcomeEmbed = new EmbedBuilder()
-                .setColor(0xFEE75C)
-                .setTitle('🎉 مرحباً بكم في قناة المهام!')
-                .setDescription('سيتم إرسال جميع إشعارات المهام والإنجازات هنا.\nحظاً موفقاً للجميع! 🏆')
+                .setColor("Gold")
+                .setTitle('🏆 قناة الإنجازات والمهام')
+                .setDescription('تم تعيين هذه القناة لاستقبال إشعارات:\n- 📜 المهام اليومية والأسبوعية\n- 🎖️ الإنجازات والأوسمة\n- 🆙 ارتفاع المستوى (Level Up)')
+                .setFooter({ text: `بواسطة: ${user.username}` })
                 .setTimestamp();
 
             await channel.send({ embeds: [welcomeEmbed] });
 
         } catch (err) {
-            console.error("Error in setquestchannel command:", err);
-            
-            // في حال كان الخطأ بسبب عدم وجود العمود في الجدول القديم
-            if (err.message.includes("no such column")) {
-                try {
-                    // محاولة إضافة العمود وإعادة المحاولة
-                    sql.prepare("ALTER TABLE settings ADD COLUMN questChannelID TEXT;").run();
-                    sql.prepare("UPDATE settings SET questChannelID = ? WHERE guild = ?").run(channel.id, guild.id);
-                    return reply('✅ تم تحديث قاعدة البيانات وتعيين القناة بنجاح!');
-                } catch (alterErr) {
-                    console.error("Failed to alter table:", alterErr);
-                }
-            }
-
-            return replyError('❌ حدث خطأ أثناء تعيين القناة! (راجع الكونسول للتفاصيل)');
+            console.error(err);
+            return reply('❌ | حدث خطأ في قاعدة البيانات.');
         }
     }
 };
