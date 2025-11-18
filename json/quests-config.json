@@ -1,0 +1,554 @@
+{
+  "daily": [
+    {
+      "id": "d_mention_1",
+      "name": "احصل على رد او منشن",
+      "description": "احصل على منشن واحد من أي عضو",
+      "stat": "mentions_received",
+      "goal": 1,
+      "reward": { "mora": 50, "xp": 50 },
+      "emoji": "📢"
+    },
+    {
+      "id": "d_reply_1",
+      "name": "منشن او رد على عضو آخر",
+      "description": "قم بالرد على رسالة واحدة لعضو آخر",
+      "stat": "replies_sent",
+      "goal": 1,
+      "reward": { "mora": 70, "xp": 70 },
+      "emoji": "↩️"
+    },
+    {
+      "id": "d_img_1",
+      "name": "ارسل فيديو او صورة",
+      "description": "أرسل صورة واحدة أو فيديو",
+      "stat": "images",
+      "goal": 1,
+      "reward": { "mora": 100, "xp": 100 },
+      "emoji": "🖼️"
+    },
+    {
+      "id": "d_react_3",
+      "name": "اضف 3 رياكشن",
+      "description": "أضف 3 ريأكشنات على الرسائل",
+      "stat": "reactions_added",
+      "goal": 3,
+      "reward": { "mora": 100, "xp": 100 },
+      "emoji": "💙"
+    },
+    {
+      "id": "d_count_1",
+      "name": "عد في قناة العد",
+      "description": "شارك في قناة العد مرة واحدة",
+      "stat": "counting_channel",
+      "goal": 1,
+      "reward": { "mora": 150, "xp": 150 },
+      "emoji": "🔢"
+    },
+    {
+      "id": "d_msg_5",
+      "name": "ارسل 5 رسائل",
+      "description": "أرسل 5 رسائل في القنوات النصية",
+      "stat": "messages",
+      "goal": 5,
+      "reward": { "mora": 200, "xp": 100 },
+      "emoji": "✉️"
+    },
+    {
+      "id": "d_tree_1",
+      "name": "اسقي الشجرة",
+      "description": "قم بسقاية الشجرة مرة واحدة",
+      "stat": "water_tree",
+      "goal": 1,
+      "reward": { "mora": 300, "xp": 300 },
+      "emoji": "🌳"
+    },
+    {
+      "id": "d_meow_1",
+      "name": "قول مياو",
+      "description": "قل 'مياو' في الشات",
+      "stat": "meow_count",
+      "goal": 1,
+      "reward": { "mora": 350, "xp": 350 },
+      "emoji": "🐱"
+    },
+    {
+      "id": "d_vc_5",
+      "name": "اقض 5 دقائق في القاعة الصوتية",
+      "description": "اقضِ 5 دقائق في أي قناة صوتية",
+      "stat": "vc_minutes",
+      "goal": 5,
+      "reward": { "mora": 500, "xp": 350 },
+      "emoji": "🔊"
+    },
+    {
+      "id": "d_stream_5",
+      "name": "افتح بث 5 دقائق",
+      "description": "قم بعمل بث (Stream) لمدة 5 دقائق",
+      "stat": "streaming_minutes",
+      "goal": 5,
+      "reward": { "mora": 800, "xp": 800 },
+      "emoji": "🔴"
+    },
+    {
+      "id": "daily_bump_1",
+      "name": "انشر السيرفر BUMP",
+      "description": "قم بعمل بومب للسيرفر في قناة البومب.",
+      "stat": "disboard_bumps",
+      "goal": 1,
+      "reward": {
+        "mora": 999,
+        "xp": 999
+      },
+      "emoji": "🚀"
+    }
+  ],
+  "weekly": [
+    {
+      "id": "w_count_30",
+      "name": "عد في قناة العد 30 مرة",
+      "description": "شارك في قناة العد 30 مرة",
+      "stat": "counting_channel",
+      "goal": 30,
+      "reward": { "mora": 650, "xp": 650 },
+      "emoji": "🔢"
+    },
+    {
+      "id": "w_mention_70",
+      "name": "احصل على 70 رد او منشن",
+      "description": "احصل على 70 منشن أو رد من الأعضاء",
+      "stat": "mentions_received",
+      "goal": 70,
+      "reward": { "mora": 700, "xp": 500 },
+      "emoji": "📢"
+    },
+    {
+      "id": "w_msg_250",
+      "name": "ارسل 250 رسالة",
+      "description": "أرسل 250 رسالة خلال الأسبوع",
+      "stat": "messages",
+      "goal": 250,
+      "reward": { "mora": 700, "xp": 700 },
+      "emoji": "📨"
+    },
+    {
+      "id": "w_reply_70",
+      "name": "منشن او رد على عضو آخر 70 مرة",
+      "description": "قم بالرد على 70 رسالة مختلفة",
+      "stat": "replies_sent",
+      "goal": 70,
+      "reward": { "mora": 700, "xp": 700 },
+      "emoji": "↩️"
+    },
+    {
+      "id": "w_react_30",
+      "name": "اضف 30 رياكشن",
+      "description": "أضف 30 ريأكشن على الرسائل",
+      "stat": "reactions_added",
+      "goal": 30,
+      "reward": { "mora": 900, "xp": 600 },
+      "emoji": "💫"
+    },
+    {
+      "id": "w_vc_30",
+      "name": "اقض 30 دقيقة في القاعة الصوتية",
+      "description": "اقضِ 30 دقيقة إجمالاً في القنوات الصوتية",
+      "stat": "vc_minutes",
+      "goal": 30,
+      "reward": { "mora": 1000, "xp": 850 },
+      "emoji": "🎤"
+    },
+    {
+      "id": "w_img_20",
+      "name": "ارسل 20 فيديو او صورة",
+      "description": "أرسل 20 صورة أو فيديو خلال الأسبوع",
+      "stat": "images",
+      "goal": 20,
+      "reward": { "mora": 1000, "xp": 800 },
+      "emoji": "🖼️"
+    },
+    {
+      "id": "w_stream_35",
+      "name": "افتح بث 35 دقيقة",
+      "description": "قم بعمل بث (Stream) لمدة 35 دقيقة",
+      "stat": "streaming_minutes",
+      "goal": 35,
+      "reward": { "mora": 1300, "xp": 1300 },
+      "emoji": "🔴"
+    },
+    {
+      "id": "w_tree_10",
+      "name": "اسقي الشجرة 10 مرات",
+      "description": "قم بسقاية الشجرة 10 مرات خلال الأسبوع",
+      "stat": "water_tree",
+      "goal": 10,
+      "reward": { "mora": 1500, "xp": 1000 },
+      "emoji": "🌳"
+    }
+  ],
+  "achievements": [
+    {
+      "id": "ach_tree_role",
+      "name": "ضل الشجرة المقدسة",
+      "description": "خذ رول اشعارات ري الشجرة",
+      "stat": "has_tree_role",
+      "goal": 1,
+      "reward": { "mora": 200, "xp": 100 },
+      "emoji": "🌳",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_msg_1",
+      "name": "امير الشات",
+      "description": "ارسال 10 رسائل",
+      "stat": "total_messages",
+      "goal": 10,
+      "reward": { "mora": 100, "xp": 100 },
+      "emoji": "💬",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_react_1",
+      "name": "امير الرياكشن",
+      "description": "اضافة 10 رياكشن",
+      "stat": "total_reactions_added",
+      "goal": 10,
+      "reward": { "mora": 100, "xp": 100 },
+      "emoji": "🏆",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_race_role",
+      "name": "حدد عرقك",
+      "description": "اختار رول من رولات الاعراق",
+      "stat": "has_race_role",
+      "goal": 1,
+      "reward": { "mora": 999, "xp": 333 },
+      "emoji": "✨",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_vc_1",
+      "name": "امير القاعة الصوتية",
+      "description": "اقضِ 10 دقائق بالقنوات الصوتية",
+      "stat": "totalVCTime",
+      "goal": 600,
+      "reward": { "mora": 300, "xp": 300 },
+      "emoji": "🎙️",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_meow_50",
+      "name": "قطـة",
+      "description": "قول مياو 50 مرة",
+      "stat": "total_meow_count",
+      "goal": 50,
+      "reward": { "mora": 500, "xp": 500 },
+      "emoji": "🐱",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_lvl_5",
+      "name": "بداية الرحلة",
+      "description": "الوصول إلى المستوى 5",
+      "stat": "level",
+      "goal": 5,
+      "reward": { "mora": 500, "xp": 100 },
+      "emoji": "🏅",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_streak_10",
+      "name": "امـيـر الستريـك",
+      "description": "الوصول إلى 10 ستريك",
+      "stat": "highestStreak",
+      "goal": 10,
+      "reward": { "mora": 500, "xp": 500 },
+      "emoji": "🔥",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_lvl_10",
+      "name": "مغامر الفلك",
+      "description": "الوصول إلى المستوى 10",
+      "stat": "level",
+      "goal": 10,
+      "reward": { "mora": 700, "xp": 300 },
+      "emoji": "🏅",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_shop_10",
+      "name": "زبون الامبراطورية",
+      "description": "اشتري 10 مرات من المتجر",
+      "stat": "shop_purchases",
+      "goal": 10,
+      "reward": { "mora": 2000, "xp": 700 },
+      "emoji": "🛍️",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_msg_2",
+      "name": "ملك الدردشة",
+      "description": "ارسال 1000 رسالة",
+      "stat": "total_messages",
+      "goal": 1000,
+      "reward": { "mora": 1000, "xp": 1000 },
+      "emoji": "💬",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_react_2",
+      "name": "ملك الرياكشن",
+      "description": "اضافة 100 رياكشن",
+      "stat": "total_reactions_added",
+      "goal": 100,
+      "reward": { "mora": 1000, "xp": 1000 },
+      "emoji": "🏆",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_streak_20",
+      "name": "ملك الستريك",
+      "description": "الوصول إلى 20 ستريك",
+      "stat": "highestStreak",
+      "goal": 20,
+      "reward": { "mora": 1000, "xp": 700 },
+      "emoji": "🔥",
+      "rarity": "rare"
+    },
+    {
+      "id": "ach_lvl_20",
+      "name": "فارس السديم",
+      "description": "الوصول إلى المستوى 20",
+      "stat": "level",
+      "goal": 20,
+      "reward": { "mora": 1500, "xp": 500 },
+      "emoji": "🏅",
+      "rarity": "common"
+    },
+    {
+      "id": "ach_vc_2",
+      "name": "ملك القاعة الصوتية",
+      "description": "اقضِ 3 ساعات بالقنوات الصوتية",
+      "stat": "totalVCTime",
+      "goal": 10800,
+      "reward": { "mora": 1500, "xp": 1000 },
+      "emoji": "🎙️",
+      "rarity": "rare"
+    },
+    {
+      "id": "ach_lvl_30",
+      "name": "ميدالية النبلاء",
+      "description": "الوصول إلى المستوى 30",
+      "stat": "level",
+      "goal": 30,
+      "reward": { "mora": 2000, "xp": 800 },
+      "emoji": "🏅",
+      "rarity": "rare"
+    },
+    {
+      "id": "ach_lvl_40",
+      "name": "الى المجد",
+      "description": "الوصول إلى المستوى 40",
+      "stat": "level",
+      "goal": 40,
+      "reward": { "mora": 2500, "xp": 999 },
+      "emoji": "🏅",
+      "rarity": "rare"
+    },
+    {
+      "id": "ach_lvl_50",
+      "name": "خاتم النبلاء",
+      "description": "الوصول إلى المستوى 50",
+      "stat": "level",
+      "goal": 50,
+      "reward": { "mora": 2800, "xp": 1200 },
+      "emoji": "🏅",
+      "rarity": "rare"
+    },
+    {
+      "id": "ach_msg_3",
+      "name": "عاهل الدردشة",
+      "description": "ارسال 10000 رسالة",
+      "stat": "total_messages",
+      "goal": 10000,
+      "reward": { "mora": 3000, "xp": 3000 },
+      "emoji": "💬",
+      "rarity": "rare"
+    },
+    {
+      "id": "ach_react_3",
+      "name": "عاهل الرياكشن",
+      "description": "اضافة 300 رياكشن",
+      "stat": "total_reactions_added",
+      "goal": 300,
+      "reward": { "mora": 3000, "xp": 3000 },
+      "emoji": "🏆",
+      "rarity": "rare"
+    },
+    {
+      "id": "ach_vc_3",
+      "name": "عاهل القاعة الصوتية",
+      "description": "اقضِ 24 ساعة بالقنوات الصوتية",
+      "stat": "totalVCTime",
+      "goal": 86400,
+      "reward": { "mora": 3000, "xp": 2000 },
+      "emoji": "🎙️",
+      "rarity": "rare"
+    },
+    {
+      "id": "ach_streak_50",
+      "name": "عاهل الستريك",
+      "description": "الوصول إلى 50 ستريك",
+      "stat": "highestStreak",
+      "goal": 50,
+      "reward": { "mora": 3000, "xp": 2000 },
+      "emoji": "🔥",
+      "rarity": "rare"
+    },
+    {
+      "id": "ach_lvl_60",
+      "name": "فخر الامراء",
+      "description": "الوصول إلى المستوى 60",
+      "stat": "level",
+      "goal": 60,
+      "reward": { "mora": 3000, "xp": 1500 },
+      "emoji": "🏅",
+      "rarity": "epic"
+    },
+    {
+      "id": "ach_lvl_70",
+      "name": "توجت كـ ملك",
+      "description": "الوصول إلى المستوى 70",
+      "stat": "level",
+      "goal": 70,
+      "reward": { "mora": 3300, "xp": 1800 },
+      "emoji": "🏅",
+      "rarity": "epic"
+    },
+    {
+      "id": "ach_vc_4",
+      "name": "سلطان القاعة الصوتية",
+      "description": "اقضِ 3 ايام بالقنوات الصوتية",
+      "stat": "totalVCTime",
+      "goal": 259200,
+      "reward": { "mora": 4000, "xp": 2500 },
+      "emoji": "🎙️",
+      "rarity": "epic"
+    },
+    {
+      "id": "ach_lvl_80",
+      "name": "عرش السلطان",
+      "description": "الوصول إلى المستوى 80",
+      "stat": "level",
+      "goal": 80,
+      "reward": { "mora": 4000, "xp": 2000 },
+      "emoji": "🏅",
+      "rarity": "epic"
+    },
+    {
+      "id": "ach_lvl_90",
+      "name": "خاتم القيصر",
+      "description": "الوصول إلى المستوى 90",
+      "stat": "level",
+      "goal": 90,
+      "reward": { "mora": 5000, "xp": 3000 },
+      "emoji": "🏅",
+      "rarity": "epic"
+    },
+    {
+      "id": "ach_msg_4",
+      "name": "امبراطور الدردشة",
+      "description": "ارسال 100000 رسالة",
+      "stat": "total_messages",
+      "goal": 100000,
+      "reward": { "mora": 7600, "xp": 5000 },
+      "emoji": "👑",
+      "rarity": "epic"
+    },
+    {
+      "id": "ach_react_4",
+      "name": "امبراطور الرياكشن",
+      "description": "اضافة 500 رياكشن",
+      "stat": "total_reactions_added",
+      "goal": 500,
+      "reward": { "mora": 7600, "xp": 5000 },
+      "emoji": "👑",
+      "rarity": "epic"
+    },
+    {
+      "id": "ach_vc_5",
+      "name": "امبراطور القاعة الصوتية",
+      "description": "اقضِ 7 ايام بالقنوات الصوتية",
+      "stat": "totalVCTime",
+      "goal": 604800,
+      "reward": { "mora": 7600, "xp": 5000 },
+      "emoji": "👑",
+      "rarity": "epic"
+    },
+    {
+      "id": "ach_boost_1",
+      "name": "معـزز الامبراطورية",
+      "description": "تعزيز السيرفر بـ بوست",
+      "stat": "boost_count",
+      "goal": 1,
+      "reward": { "mora": 8000, "xp": 5000 },
+      "emoji": "🚀",
+      "rarity": "epic"
+    },
+    {
+      "id": "ach_tag_role",
+      "name": "VIP",
+      "description": "ضع تاق السيرفر في حالتك",
+      "stat": "has_tag_role",
+      "goal": 1,
+      "reward": {
+        "mora": 1000,
+        "xp": 1000
+      },
+      "emoji": "💎",
+      "rarity": "rare"
+    },
+    {
+      "id": "ach_streak_100",
+      "name": "سلطان الستريك",
+      "description": "الوصول إلى 100 ستريك",
+      "stat": "highestStreak",
+      "goal": 100,
+      "reward": { "mora": 10000, "xp": 10000 },
+      "emoji": "👑",
+      "rarity": "epic"
+    },
+    {
+      "id": "ach_lvl_99",
+      "name": "سرمدية المجد توجت كـ امبراطور",
+      "description": "الوصول إلى المستوى 99",
+      "stat": "level",
+      "goal": 99,
+      "reward": { "mora": 10000, "xp": 10000 },
+      "emoji": "👑",
+      "rarity": "legendary"
+    },
+    {
+      "id": "ach_caesar_role",
+      "name": "اشترك بعضوية القيصر",
+      "description": "تحصل على رول القيصر",
+      "stat": "has_caesar_role",
+      "goal": 1,
+      "reward": { "mora": 10000, "xp": 8000 },
+      "emoji": "💎",
+      "rarity": "legendary"
+    },
+    {
+      "id": "ach_streak_200",
+      "name": "امبراطور الستريك",
+      "description": "الوصول إلى 200 ستريك",
+      "stat": "highestStreak",
+      "goal": 200,
+      "reward": { "mora": 50000, "xp": 50000 },
+      "emoji": "👑",
+      "rarity": "legendary"
+    }
+  ]
+}

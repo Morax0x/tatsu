@@ -1,0 +1,257 @@
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, Colors, ComponentType, SlashCommandBuilder } = require("discord.js");
+const farmAnimals = require('../../json/farm-animals.json');
+
+const EMOJI_MORA = '<:mora:1435647151349698621>';
+const ITEMS_PER_PAGE = 9;
+
+const EMOJI_ASSET_LARGE = {
+    'APPLE': '<:aapple:1435884007484293161>',
+    'ANDROID': '<:android:1435885726519656578>',
+    'TESLA': '🚗',
+    'GOLD': '🪙',
+    'LAND': '🏞️',
+    'BITCOIN': '💰',
+    'SPACEX': '🚀',
+    'SILVER': '🥈',
+    'ART': '🎨',
+};
+
+const EMOJI_ASSET_SMALL = {
+    'APPLE': '🍎',
+    'ANDROID': '🤖',
+    'TESLA': '🚗',
+    'GOLD': '🪙',
+    'LAND': '🏞️',
+    'BITCOIN': '💰',
+    'SPACEX': '🚀',
+    'SILVER': '🥈',
+    'ART': '🎨',
+};
+
+const EMOJI_ASSET_IMAGES = {
+    'TESLA': 'https://i.postimg.cc/Dyp3YSCw/tesla.png',
+    'APPLE': 'https://i.postimg.cc/mkQN11tp/Apple-logo-grey-svg.png',
+    'GOLD': 'https://i.postimg.cc/gJMPFrY7/gold.png',
+    'SPACEX': 'https://i.postimg.cc/8kJ1QB6k/Space-X-Logo-Black.png',
+    'ANDROID': 'https://i.postimg.cc/yYytwkvZ/Android-Logo-2014-2019.png',
+    'SILVER': 'https://i.postimg.cc/bYHmv4b9/pngimg-com-silver-PNG17188.png',
+    'LAND': 'https://i.postimg.cc/bYHmv4b9/pngimg-com-silver-PNG17188.png',
+    'BITCOIN': 'https://i.postimg.cc/HWZ732CH/ss.png',
+    'ART': 'https://i.postimg.cc/K8Xjspp1/3ecc929e25adc64531f0db7fe65f678f-removebg-preview.png',
+};
+
+function buildGridView(allItems, pageIndex) {
+    const startIndex = pageIndex * ITEMS_PER_PAGE;
+    const itemsOnPage = allItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+    const totalPages = Math.ceil(allItems.length / ITEMS_PER_PAGE);
+
+    const col1 = [], col2 = [], col3 = [];
+    itemsOnPage.forEach((item, index) => {
+        const price = item.price.toLocaleString();
+        const itemLine = `**${item.emoji} ${item.name}**\n${price} ${EMOJI_MORA}`;
+
+        if (index % 3 === 0) col1.push(itemLine);
+        else if (index % 3 === 1) col2.push(itemLine);
+        else col3.push(itemLine);
+    });
+
+    const embed = new EmbedBuilder()
+        .setTitle('🏞️ متجر المزرعة')
+        .setColor("Random")
+        .setImage('https://i.postimg.cc/J0x0Fj0D/download.gif')
+        .setDescription('اختر حيواناً من القائمة المنسدلة لعرض التفاصيل والشراء.')
+        .addFields(
+            { name: '\u200B', value: col1.join('\n\n') || '\u200B', inline: true },
+            { name: '\u200B', value: col2.join('\n\n') || '\u200B', inline: true },
+            { name: '\u200B', value: col3.join('\n\n') || '\u200B', inline: true }
+        )
+        .setFooter({ text: `صفحة ${pageIndex + 1}/${totalPages}` });
+
+    const selectOptions = itemsOnPage.map(item => ({
+        label: `${item.name}`,
+        description: `الدخل اليومي: ${item.income_per_day} مورا`,
+        value: item.id,
+        emoji: item.emoji
+    }));
+
+    const selectMenuRow = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('farm_select_item')
+            .setPlaceholder('اختر حيواناً لعرض التفاصيل والشراء...')
+            .addOptions(selectOptions)
+    );
+
+    return { embed, components: [selectMenuRow] };
+}
+
+function buildDetailView(item, userId, guildId, sql, itemIndex, totalItems) {
+    const userFarm = sql.prepare("SELECT COUNT(*) as quantity FROM user_farm WHERE userID = ? AND guildID = ? AND animalID = ?").get(userId, guildId, item.id);
+    const userQuantity = userFarm ? userFarm.quantity : 0;
+    const price = item.price.toLocaleString();
+    const income_per_day = item.income_per_day || 0;
+    const lifespan = item.lifespan_days || 30;
+    const income = (income_per_day * userQuantity).toLocaleString();
+
+    const detailEmbed = new EmbedBuilder()
+        .setTitle(`🏞️ ${item.name}`)
+        .setColor("Random")
+        .setThumbnail(item.image || null)
+        .addFields(
+            { name: 'سعر الشراء', value: `${price} ${EMOJI_MORA}`, inline: true },
+            { name: 'الدخل (لليوم)', value: `${income_per_day} ${EMOJI_MORA}`, inline: true },
+            { name: 'العمر الافتراضي', value: `${lifespan} يوم`, inline: true },
+            { name: 'في مزرعتك', value: `**${userQuantity.toLocaleString()}** (إجمالي الدخل: ${income}/يوم)`, inline: false }
+        )
+        .setFooter({ text: `الحيوان ${itemIndex + 1} من ${totalItems}` });
+
+    const actionRow1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`farm_prev_detail_${item.id}`).setLabel('◀️').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`farm_next_detail_${item.id}`).setLabel('▶️').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('farm_back_to_grid').setLabel('العودة للمتجر').setStyle(ButtonStyle.Primary)
+    );
+
+    const actionRow2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`buy_animal_${item.id}`).setLabel('شراء').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`sell_animal_${item.id}`).setLabel(`بيع (تملك: ${userQuantity})`).setStyle(ButtonStyle.Danger).setDisabled(userQuantity === 0)
+    );
+
+    return { embed: detailEmbed, components: [actionRow1, actionRow2] };
+}
+
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('مزرعة')
+        .setDescription('يعرض متجر المزرعة لشراء الحيوانات.'),
+
+    name: 'farm',
+    aliases: ['مزرعة', 'حيوانات'],
+    category: "Economy",
+    description: 'يعرض متجر المزرعة لشراء الحيوانات.',
+
+    async execute(interactionOrMessage, args) {
+
+        const isSlash = !!interactionOrMessage.isChatInputCommand;
+        let interaction, message, client, sql, user, guild;
+
+        if (isSlash) {
+            interaction = interactionOrMessage;
+            client = interaction.client;
+            sql = client.sql;
+            user = interaction.user;
+            guild = interaction.guild;
+            await interaction.deferReply();
+        } else {
+            message = interactionOrMessage;
+            client = message.client;
+            sql = client.sql;
+            user = message.author;
+            guild = message.guild;
+        }
+
+        const reply = async (payload) => {
+            if (isSlash) {
+                return interaction.editReply(payload);
+            } else {
+                return message.channel.send(payload);
+            }
+        };
+
+        const allItems = farmAnimals;
+        if (allItems.length === 0) {
+            const embed = new EmbedBuilder().setTitle('🏞️ متجر المزرعة').setDescription("المتجر فارغ حالياً.").setColor(Colors.Red);
+            return reply({ embeds: [embed] });
+        }
+
+        let currentPage = 0;
+        let currentView = 'grid';
+        let currentItemIndex = 0;
+
+        const { embed, components } = buildGridView(allItems, currentPage);
+
+        const msg = await reply({ embeds: [embed], components: components, fetchReply: true });
+
+        const filter = i => i.user.id === user.id;
+        const collector = msg.createMessageComponentCollector({
+            time: 180000,
+            filter,
+        });
+
+        collector.on('collect', async i => {
+            try {
+                if (i.isButton()) {
+
+                    if (i.customId.startsWith('farm_prev_detail_') || i.customId.startsWith('farm_next_detail_')) {
+                        await i.deferUpdate();
+
+                        const currentItemID = i.customId.split('_')[3];
+                        currentItemIndex = allItems.findIndex(it => it.id === currentItemID);
+
+                        if (i.customId.startsWith('farm_next_detail_')) {
+                            currentItemIndex = (currentItemIndex + 1) % allItems.length;
+                        } else if (i.customId.startsWith('farm_prev_detail_')) {
+                            currentItemIndex = (currentItemIndex - 1 + allItems.length) % allItems.length;
+                        }
+
+                        const item = allItems[currentItemIndex];
+                        const { embed: detailEmbed, components: detailComponents } = buildDetailView(item, i.user.id, i.guild.id, sql, currentItemIndex, allItems.length);
+                        await i.editReply({ embeds: [detailEmbed], components: detailComponents });
+                        return;
+                    }
+
+                    if (i.customId === 'farm_back_to_grid') {
+                        await i.deferUpdate();
+                        currentView = 'grid';
+                        const { embed: gridEmbed, components: gridComponents } = buildGridView(allItems, currentPage);
+                        await i.editReply({ embeds: [gridEmbed], components: gridComponents });
+
+                    } else if (i.customId.startsWith('buy_animal_') || i.customId.startsWith('sell_animal_')) {
+                        const isBuy = i.customId.startsWith('buy_animal_');
+                        const assetId = i.customId.replace(isBuy ? 'buy_animal_' : 'sell_animal_', '');
+                        const item = allItems.find(it => it.id === assetId);
+
+                        if (!item) return;
+
+                        const modal = new ModalBuilder()
+                            .setCustomId(`${isBuy ? 'buy_animal_' : 'sell_animal_'}${assetId}`)
+                            .setTitle("أدخل الكمية");
+
+                        const quantityInput = new TextInputBuilder()
+                            .setCustomId('quantity_input')
+                            .setLabel(isBuy ? `الكمية التي تريد شراءها من ${item.name}` : `الكمية التي تريد بيعها من ${item.name}`)
+                            .setStyle(TextInputStyle.Short)
+                            .setPlaceholder(isBuy ? `السعر: ${item.price.toLocaleString()}` : `ستسترجع: 70% من سعر الشراء`)
+                            .setRequired(true);
+
+                        modal.addComponents(new ActionRowBuilder().addComponents(quantityInput));
+                        await i.showModal(modal);
+                    }
+                }
+
+                else if (i.isStringSelectMenu() && i.customId === 'farm_select_item') {
+                    await i.deferUpdate();
+                    currentView = 'detail';
+                    const selectedID = i.values[0];
+                    const item = allItems.find(it => it.id === selectedID);
+                    currentItemIndex = allItems.findIndex(it => it.id === selectedID);
+                    const { embed: detailEmbed, components: detailComponents } = buildDetailView(item, i.user.id, i.guild.id, sql, currentItemIndex, allItems.length);
+                    await i.editReply({ embeds: [detailEmbed], components: detailComponents });
+                }
+            } catch (error) {
+                console.error("خطأ في جامع المزرعة:", error);
+                try {
+                    if (i.replied || i.deferred) {
+                        await i.followUp({ content: '❌ حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.', ephemeral: true });
+                    } else {
+                        await i.reply({ content: '❌ حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.', ephemeral: true });
+                    }
+                } catch (e) {
+                    console.error("لا يمكن إرسال رسالة الخطأ:", e);
+                }
+            }
+        });
+
+        collector.on('end', () => {
+            msg.edit({ components: [] }).catch(() => null);
+        });
+    }
+};
