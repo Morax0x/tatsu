@@ -5,7 +5,7 @@ const { checkPermissions, checkCooldown } = require("../permission-handler.js");
 // --- الثوابت ---
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// --- كائن البيانات الافتراضية للفل (لتجنب الأخطاء عند إنشاء مستخدم جديد) ---
+// --- القوالب الافتراضية (لتجنب الأخطاء الحسابية) ---
 const completeDefaultLevelData = {
     xp: 0, level: 1, totalXP: 0, mora: 0,
     lastWork: 0, lastDaily: 0, dailyStreak: 0, 
@@ -17,12 +17,11 @@ const completeDefaultLevelData = {
     boost_count: 0, lastPVP: 0
 };
 
-// --- كائن البيانات الافتراضية للإحصائيات (لتجنب القيم الفارغة) ---
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultWeeklyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
 
-// --- دوال المساعدة للتواريخ ---
+// --- دوال المساعدة ---
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 
 function getWeekStartDateString() {
@@ -33,16 +32,17 @@ function getWeekStartDateString() {
     return friday.toISOString().split('T')[0];
 }
 
+// دالة لدمج القيم الافتراضية مع القيم الموجودة لتجنب الـ NaN
 function safeMerge(base, defaults) {
     const result = { ...base };
     for (const key in defaults) {
-        if (result[key] === undefined) result[key] = defaults[key];
+        if (result[key] === undefined || result[key] === null) result[key] = defaults[key];
     }
     return result;
 }
 
 // ==================================================================
-// 🌟🌟 دالة التتبع الأساسية (هي التي تجعل المهام تعمل) 🌟🌟
+// 🌟🌟 المحرك الرئيسي لتتبع المهام والإنجازات 🌟🌟
 // ==================================================================
 async function trackMessageStats(message, client) {
     const sql = client.sql;
@@ -56,43 +56,57 @@ async function trackMessageStats(message, client) {
         const weeklyStatsId = `${authorID}-${guildID}-${weekStartDateStr}`;
         const totalStatsId = `${authorID}-${guildID}`;
 
-        // 1. جلب البيانات أو إنشاءها مع دمج القيم الافتراضية
+        // 1. جلب البيانات أو إنشاؤها
         let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID: authorID, guildID: guildID, date: dateStr };
         let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID: authorID, guildID: guildID, weekStartDate: weekStartDateStr };
         let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID: authorID, guildID: guildID };
 
+        // تطبيق القيم الافتراضية
         dailyStats = safeMerge(dailyStats, defaultDailyStats);
         weeklyStats = safeMerge(weeklyStats, defaultWeeklyStats);
         totalStats = safeMerge(totalStats, defaultTotalStats);
 
-        // 2. زيادة العدادات
+        // 2. زيادة العدادات (يومي + أسبوعي + كلي) ✅ هنا كان سبب المشكلة سابقاً
+        
+        // --- الرسائل ---
         dailyStats.messages++;
-        weeklyStats.messages++;
+        weeklyStats.messages++; 
         totalStats.total_messages++;
 
+        // --- المرفقات والصور ---
         if (message.attachments.size > 0) {
-            dailyStats.images++; weeklyStats.images++; totalStats.total_images++;
+            dailyStats.images++; 
+            weeklyStats.images++; 
+            totalStats.total_images++;
         }
+        
+        // --- الستيكرات ---
         if (message.stickers.size > 0) {
-            dailyStats.stickers++; weeklyStats.stickers++; totalStats.total_stickers++;
+            dailyStats.stickers++; 
+            weeklyStats.stickers++; 
+            totalStats.total_stickers++;
         }
-        if (message.reference) { // إذا كانت الرسالة رداً على أحد
-            dailyStats.replies_sent++; weeklyStats.replies_sent++; totalStats.total_replies_sent++;
+        
+        // --- الردود ---
+        if (message.reference) { 
+            dailyStats.replies_sent++; 
+            weeklyStats.replies_sent++; 
+            totalStats.total_replies_sent++;
         }
 
-        // 3. حفظ البيانات في قاعدة البيانات
+        // 3. الحفظ في قاعدة البيانات
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         client.setTotalStats.run(totalStats);
 
-        // 4. فحص المهام فوراً (هل اكتملت المهمة بعد هذه الرسالة؟)
+        // 4. فحص اكتمال المهام فوراً
         if (client.checkQuests) {
             await client.checkQuests(client, message.member, dailyStats, 'daily', dateStr);
             await client.checkQuests(client, message.member, weeklyStats, 'weekly', weekStartDateStr);
             await client.checkAchievements(client, message.member, null, totalStats);
         }
 
-        // 5. التعامل مع المنشن (إذا ذكر شخصاً آخر)
+        // 5. تتبع المنشن (للشخص المذكور)
         if (message.mentions.users.size > 0) {
             message.mentions.users.forEach(async (mentionedUser) => {
                 if (mentionedUser.bot || mentionedUser.id === authorID) return;
@@ -117,7 +131,6 @@ async function trackMessageStats(message, client) {
                 client.setWeeklyStats.run(m_weekly);
                 client.setTotalStats.run(m_total);
 
-                // فحص مهام الشخص المذكور
                 const mentionedMember = message.guild.members.cache.get(mentionedUser.id);
                 if (mentionedMember && client.checkQuests) {
                     await client.checkQuests(client, mentionedMember, m_daily, 'daily', dateStr);
@@ -135,7 +148,7 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        // 1. التعامل مع البوتات (تجاهلها إلا إذا كان Disboard)
+        // 1. تجاهل البوتات (ما عدا Disboard)
         if (message.author.bot) {
             let settings;
             try { settings = sql.prepare("SELECT bumpChannelID FROM settings WHERE guild = ?").get(message.guild.id); } catch (err) { settings = null; }
@@ -151,6 +164,7 @@ module.exports = {
                         try {
                             const member = await message.guild.members.fetch(userID);
                             if (!member) return;
+                            // احتساب بمب ديسبورد
                             if(client.incrementQuestStats) await client.incrementQuestStats(userID, message.guild.id, 'disboard_bumps');
                         } catch (err) { console.error("[Disboard Bump Error]", err); }
                     }
@@ -161,13 +175,13 @@ module.exports = {
 
         if (!message.guild) return; 
 
-        // 2. جلب الإعدادات
+        // جلب الإعدادات
         let settings;
         try { settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id); } catch (err) { settings = null; }
         let reportSettings;
         try { reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id); } catch(e) { reportSettings = null; }
 
-        // 3. نظام الاختصارات (يعمل بدون بريفكس)
+        // 2. نظام الاختصارات (Shortcuts)
         try {
             const tableCheck = sql.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='command_shortcuts';").get();
             if (tableCheck['count(*)'] > 0) {
@@ -186,14 +200,14 @@ module.exports = {
                             return;
                         }
                         try { await command.execute(message, shortcutArgs); } 
-                        catch (error) { console.error(error); message.reply("حدث خطأ!"); }
+                        catch (error) { console.error(error); message.reply("حدث خطأ أثناء تنفيذ الاختصار."); }
                         return; 
                     }
                 }
             }
         } catch (err) {}
 
-        // 4. القنوات الخاصة (كازينو / بلاغات)
+        // 3. القنوات الخاصة (كازينو / بلاغات)
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
@@ -204,7 +218,6 @@ module.exports = {
                 return;
             }
         }
-
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             const command = client.commands.get('بلاغ');
             const args = message.content.trim().split(/ +/);
@@ -214,7 +227,7 @@ module.exports = {
             }
         }
 
-        // 5. الأوامر العادية (Prefix)
+        // 4. الأوامر العادية (Prefix)
         let Prefix = "-";
         try {
             const prefixRow = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id);
@@ -256,16 +269,16 @@ module.exports = {
         }
 
         // ====================================================
-        // 6. تشغيل أنظمة التتبع (هنا السر!) 🚀
+        // 5. تشغيل أنظمة التتبع (المهام، الستريك، اللفل)
         // ====================================================
 
-        // أ. التحقق من البلاك ليست
+        // أ. البلاك ليست
         try {
             let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
         } catch (err) {}
 
-        // ب. مهام خاصة (قناة العد، كلمة مياو)
+        // ب. مهام خاصة (عد + مياو)
         try {
             if (settings && settings.countingChannelID && message.channel.id === settings.countingChannelID) {
                 setTimeout(async () => {
@@ -287,7 +300,7 @@ module.exports = {
                 const hasMedia = message.attachments.size > 0 || message.embeds.some(e => e.image || e.video);
                 if (hasMedia) {
                     await handleMediaStreakMessage(message);
-                    return; // توقف هنا لقنوات الميديا
+                    return; // توقف هنا في قنوات الميديا
                 }
             }
         } catch (err) {}
@@ -295,7 +308,7 @@ module.exports = {
         // د. ستريك الشات العادي
         try { await handleStreakMessage(message); } catch (err) {}
 
-        // هـ. تتبع إحصائيات المهام (هذه الدالة التي أضفناها بالأعلى)
+        // هـ. تتبع المهام (تشغيل الدالة الجديدة)
         try { await trackMessageStats(message, client); } catch (err) {}
 
         // و. نظام الـ XP
