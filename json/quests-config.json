@@ -6,7 +6,7 @@
       "description": "احصل على منشن واحد من أي عضو",
       "stat": "mentions_received",
       "goal": 1,
-      "reward": { "mora": 50, "xp": 50 },
+      "reward": { "mora": 50, "xp": 10 },
       "emoji": "📢"
     },
     {
@@ -15,7 +15,7 @@
       "description": "قم بالرد على رسالة واحدة لعضو آخر",
       "stat": "replies_sent",
       "goal": 1,
-      "reward": { "mora": 70, "xp": 70 },
+      "reward": { "mora": 70, "xp": 10 },
       "emoji": "↩️"
     },
     {
@@ -24,7 +24,7 @@
       "description": "أرسل صورة واحدة أو فيديو",
       "stat": "images",
       "goal": 1,
-      "reward": { "mora": 100, "xp": 100 },
+      "reward": { "mora": 100, "xp": 15 },
       "emoji": "🖼️"
     },
     {
@@ -33,7 +33,7 @@
       "description": "أضف 3 ريأكشنات على الرسائل",
       "stat": "reactions_added",
       "goal": 3,
-      "reward": { "mora": 100, "xp": 100 },
+      "reward": { "mora": 100, "xp": 10 },
       "emoji": "💙"
     },
     {
@@ -42,7 +42,7 @@
       "description": "شارك في قناة العد مرة واحدة",
       "stat": "counting_channel",
       "goal": 1,
-      "reward": { "mora": 150, "xp": 150 },
+      "reward": { "mora": 150, "xp": 20 },
       "emoji": "🔢"
     },
     {
@@ -51,7 +51,7 @@
       "description": "أرسل 5 رسائل في القنوات النصية",
       "stat": "messages",
       "goal": 5,
-      "reward": { "mora": 200, "xp": 100 },
+      "reward": { "mora": 200, "xp": 10 },
       "emoji": "✉️"
     },
     {
@@ -60,7 +60,7 @@
       "description": "قم بسقاية الشجرة مرة واحدة",
       "stat": "water_tree",
       "goal": 1,
-      "reward": { "mora": 300, "xp": 300 },
+      "reward": { "mora": 300, "xp": 25 },
       "emoji": "🌳"
     },
     {
@@ -69,7 +69,7 @@
       "description": "قل 'مياو' في الشات",
       "stat": "meow_count",
       "goal": 1,
-      "reward": { "mora": 350, "xp": 350 },
+      "reward": { "mora": 50, "xp": 30 },
       "emoji": "🐱"
     },
     {
@@ -98,7 +98,7 @@
       "goal": 1,
       "reward": {
         "mora": 999,
-        "xp": 999
+        "xp": 200
       },
       "emoji": "🚀"
     }
@@ -110,7 +110,7 @@
       "description": "شارك في قناة العد 30 مرة",
       "stat": "counting_channel",
       "goal": 30,
-      "reward": { "mora": 650, "xp": 650 },
+      "reward": { "mora": 650, "xp": 250 },
       "emoji": "🔢"
     },
     {
@@ -119,7 +119,7 @@
       "description": "احصل على 70 منشن أو رد من الأعضاء",
       "stat": "mentions_received",
       "goal": 70,
-      "reward": { "mora": 700, "xp": 500 },
+      "reward": { "mora": 700, "xp": 250 },
       "emoji": "📢"
     },
     {
@@ -128,7 +128,7 @@
       "description": "أرسل 250 رسالة خلال الأسبوع",
       "stat": "messages",
       "goal": 250,
-      "reward": { "mora": 700, "xp": 700 },
+      "reward": { "mora": 700, "xp": 250 },
       "emoji": "📨"
     },
     {
@@ -137,7 +137,7 @@
       "description": "قم بالرد على 70 رسالة مختلفة",
       "stat": "replies_sent",
       "goal": 70,
-      "reward": { "mora": 700, "xp": 700 },
+      "reward": { "mora": 700, "xp": 250 },
       "emoji": "↩️"
     },
     {
@@ -146,7 +146,7 @@
       "description": "أضف 30 ريأكشن على الرسائل",
       "stat": "reactions_added",
       "goal": 30,
-      "reward": { "mora": 900, "xp": 600 },
+      "reward": { "mora": 900, "xp": 250 },
       "emoji": "💫"
     },
     {
@@ -155,7 +155,7 @@
       "description": "اقضِ 30 دقيقة إجمالاً في القنوات الصوتية",
       "stat": "vc_minutes",
       "goal": 30,
-      "reward": { "mora": 1000, "xp": 850 },
+      "reward": { "mora": 1000, "xp": 700 },
       "emoji": "🎤"
     },
     {
@@ -164,7 +164,7 @@
       "description": "أرسل 20 صورة أو فيديو خلال الأسبوع",
       "stat": "images",
       "goal": 20,
-      "reward": { "mora": 1000, "xp": 800 },
+      "reward": { "mora": 1000, "xp": 200 },
       "emoji": "🖼️"
     },
     {
@@ -173,7 +173,7 @@
       "description": "قم بعمل بث (Stream) لمدة 35 دقيقة",
       "stat": "streaming_minutes",
       "goal": 35,
-      "reward": { "mora": 1300, "xp": 1300 },
+      "reward": { "mora": 1300, "xp": 800 },
       "emoji": "🔴"
     },
     {
@@ -182,7 +182,7 @@
       "description": "قم بسقاية الشجرة 10 مرات خلال الأسبوع",
       "stat": "water_tree",
       "goal": 10,
-      "reward": { "mora": 1500, "xp": 1000 },
+      "reward": { "mora": 700, "xp": 300 },
       "emoji": "🌳"
     }
   ],
@@ -193,7 +193,7 @@
       "description": "خذ رول اشعارات ري الشجرة",
       "stat": "has_tree_role",
       "goal": 1,
-      "reward": { "mora": 200, "xp": 100 },
+      "reward": { "mora": 200, "xp": 70 },
       "emoji": "🌳",
       "rarity": "common"
     },
@@ -203,7 +203,7 @@
       "description": "ارسال 10 رسائل",
       "stat": "total_messages",
       "goal": 10,
-      "reward": { "mora": 100, "xp": 100 },
+      "reward": { "mora": 100, "xp": 70 },
       "emoji": "💬",
       "rarity": "common"
     },
@@ -213,7 +213,7 @@
       "description": "اضافة 10 رياكشن",
       "stat": "total_reactions_added",
       "goal": 10,
-      "reward": { "mora": 100, "xp": 100 },
+      "reward": { "mora": 100, "xp": 50 },
       "emoji": "🏆",
       "rarity": "common"
     },
@@ -223,7 +223,7 @@
       "description": "اختار رول من رولات الاعراق",
       "stat": "has_race_role",
       "goal": 1,
-      "reward": { "mora": 999, "xp": 333 },
+      "reward": { "mora": 999, "xp": 100 },
       "emoji": "✨",
       "rarity": "common"
     },
@@ -253,7 +253,7 @@
       "description": "الوصول إلى المستوى 5",
       "stat": "level",
       "goal": 5,
-      "reward": { "mora": 500, "xp": 100 },
+      "reward": { "mora": 500, "xp": 80 },
       "emoji": "🏅",
       "rarity": "common"
     },
