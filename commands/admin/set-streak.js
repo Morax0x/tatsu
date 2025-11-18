@@ -1,5 +1,5 @@
 const { PermissionsBitField, SlashCommandBuilder } = require("discord.js");
-const { updateNickname } = require("../../streak-handler.js"); // <-- تم التصحيح هنا
+const { updateNickname } = require("../../streak-handler.js"); 
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -93,8 +93,15 @@ module.exports = {
         }
 
         setStreak.run(streakData);
-        await updateNickname(user, count);
 
-        return reply(`تم تحديد ستريك ${user.toString()} إلى **${count}🔥**.`);
+        // ( 🌟🌟🌟 التصحيح هنا: تمرير sql كمعامل ثالث 🌟🌟🌟 )
+        try {
+            await updateNickname(user, count, sql);
+        } catch (err) {
+            console.error("Failed to update nickname:", err);
+            // لا نوقف الأمر، فقط نسجل الخطأ (لأن البوت قد لا يملك صلاحية تغيير اسم المشرفين)
+        }
+
+        return reply(`✅ تم تحديد ستريك ${user.toString()} إلى **${count}🔥** وتحديث اسمه.`);
     }
 };
