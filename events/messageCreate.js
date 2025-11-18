@@ -21,7 +21,6 @@ const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added
 const defaultWeeklyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
 
-// --- دوال المساعدة ---
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 
 function getWeekStartDateString() {
@@ -40,9 +39,6 @@ function safeMerge(base, defaults) {
     return result;
 }
 
-// ==================================================================
-// 🌟🌟 المحرك الرئيسي لتتبع المهام والإنجازات (تم الإصلاح) 🌟🌟
-// ==================================================================
 async function trackMessageStats(message, client) {
     const sql = client.sql;
     try {
@@ -55,18 +51,14 @@ async function trackMessageStats(message, client) {
         const weeklyStatsId = `${authorID}-${guildID}-${weekStartDateStr}`;
         const totalStatsId = `${authorID}-${guildID}`;
 
-        // 1. جلب البيانات أو إنشاؤها
         let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID: authorID, guildID: guildID, date: dateStr };
         let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID: authorID, guildID: guildID, weekStartDate: weekStartDateStr };
         let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID: authorID, guildID: guildID };
 
-        // تطبيق القيم الافتراضية (Safety)
         dailyStats = safeMerge(dailyStats, defaultDailyStats);
         weeklyStats = safeMerge(weeklyStats, defaultWeeklyStats);
         totalStats = safeMerge(totalStats, defaultTotalStats);
 
-        // 2. زيادة العدادات (الآن نحسب للكل: يومي، أسبوعي، كلي) ✅
-        
         // --- الرسائل ---
         dailyStats.messages++;
         weeklyStats.messages++; 
@@ -93,19 +85,30 @@ async function trackMessageStats(message, client) {
             totalStats.total_replies_sent++;
         }
 
-        // 3. الحفظ في قاعدة البيانات
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
-        client.setTotalStats.run(totalStats);
+        
+        // ⚠️⚠️⚠️ التصحيح الأهم هنا: تمرير كائن يحتوي على المفاتيح الصحيحة التي ينتظرها أمر SQL ⚠️⚠️⚠️
+        client.setTotalStats.run({
+            id: totalStatsId,
+            userID: authorID,
+            guildID: guildID,
+            total_messages: totalStats.total_messages,
+            total_images: totalStats.total_images,
+            total_stickers: totalStats.total_stickers,
+            total_reactions_added: totalStats.total_reactions_added,
+            replies_sent: totalStats.total_replies_sent, // هنا يتم تمرير القيمة للمتغير @replies_sent في الـ prepared statement
+            mentions_received: totalStats.total_mentions_received,
+            total_vc_minutes: totalStats.total_vc_minutes,
+            total_disboard_bumps: totalStats.total_disboard_bumps
+        });
 
-        // 4. فحص اكتمال المهام فوراً
         if (client.checkQuests) {
             await client.checkQuests(client, message.member, dailyStats, 'daily', dateStr);
             await client.checkQuests(client, message.member, weeklyStats, 'weekly', weekStartDateStr);
             await client.checkAchievements(client, message.member, null, totalStats);
         }
 
-        // 5. تتبع المنشن (للشخص المذكور)
         if (message.mentions.users.size > 0) {
             message.mentions.users.forEach(async (mentionedUser) => {
                 if (mentionedUser.bot || mentionedUser.id === authorID) return;
@@ -128,7 +131,20 @@ async function trackMessageStats(message, client) {
 
                 client.setDailyStats.run(m_daily);
                 client.setWeeklyStats.run(m_weekly);
-                client.setTotalStats.run(m_total);
+                
+                client.setTotalStats.run({
+                    id: m_totalId,
+                    userID: mentionedUser.id,
+                    guildID: guildID,
+                    total_messages: m_total.total_messages,
+                    total_images: m_total.total_images,
+                    total_stickers: m_total.total_stickers,
+                    total_reactions_added: m_total.total_reactions_added,
+                    replies_sent: m_total.total_replies_sent,
+                    mentions_received: m_total.total_mentions_received,
+                    total_vc_minutes: m_total.total_vc_minutes,
+                    total_disboard_bumps: m_total.total_disboard_bumps
+                });
 
                 const mentionedMember = message.guild.members.cache.get(mentionedUser.id);
                 if (mentionedMember && client.checkQuests) {
@@ -147,7 +163,6 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        // 1. تجاهل البوتات (ما عدا Disboard)
         if (message.author.bot) {
             let settings;
             try { settings = sql.prepare("SELECT bumpChannelID FROM settings WHERE guild = ?").get(message.guild.id); } catch (err) { settings = null; }
@@ -172,13 +187,11 @@ module.exports = {
 
         if (!message.guild) return; 
 
-        // جلب الإعدادات
         let settings;
         try { settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id); } catch (err) { settings = null; }
         let reportSettings;
         try { reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id); } catch(e) { reportSettings = null; }
 
-        // 2. نظام الاختصارات (Shortcuts)
         try {
             const tableCheck = sql.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='command_shortcuts';").get();
             if (tableCheck['count(*)'] > 0) {
@@ -204,7 +217,6 @@ module.exports = {
             }
         } catch (err) {}
 
-        // 3. القنوات الخاصة (كازينو / بلاغات)
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
@@ -224,7 +236,6 @@ module.exports = {
             }
         }
 
-        // 4. الأوامر العادية (Prefix)
         let Prefix = "-";
         try {
             const prefixRow = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id);
@@ -265,17 +276,11 @@ module.exports = {
             }
         }
 
-        // ====================================================
-        // 5. تشغيل أنظمة التتبع (المهام، الستريك، اللفل)
-        // ====================================================
-
-        // أ. البلاك ليست
         try {
             let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
         } catch (err) {}
 
-        // ب. مهام خاصة (عد + مياو)
         try {
             if (settings && settings.countingChannelID && message.channel.id === settings.countingChannelID) {
                 setTimeout(async () => {
@@ -290,25 +295,20 @@ module.exports = {
             }
         } catch (err) { console.error("[Quest Message Tracker Error]", err); }
 
-        // ج. ستريك الميديا
         try {
             const isMediaChannel = sql.prepare("SELECT * FROM media_streak_channels WHERE guildID = ? AND channelID = ?").get(message.guild.id, message.channel.id);
             if (isMediaChannel) {
                 const hasMedia = message.attachments.size > 0 || message.embeds.some(e => e.image || e.video);
                 if (hasMedia) {
                     await handleMediaStreakMessage(message);
-                    return; // توقف هنا في قنوات الميديا
+                    return; 
                 }
             }
         } catch (err) {}
 
-        // د. ستريك الشات العادي
         try { await handleStreakMessage(message); } catch (err) {}
-
-        // هـ. تتبع المهام (تشغيل الدالة الجديدة)
         try { await trackMessageStats(message, client); } catch (err) {}
 
-        // و. نظام الـ XP
         try {
             let level = client.getLevel.get(message.author.id, message.guild.id);
             if (!level) level = { ...(client.defaultData || {}), ...completeDefaultLevelData, user: message.author.id, guild: message.guild.id };
@@ -333,7 +333,6 @@ module.exports = {
                     level.level += 1;
                     const newLevel = level.level;
                     
-                    // ✅ استخدام الدالة المحلية لإرسال اللفل أب للقناة الصحيحة
                     await client.sendLevelUpMessage(message, message.member, newLevel, oldLevel, level);
                 }
                 client.setLevel.run(level);
@@ -341,7 +340,6 @@ module.exports = {
                 setTimeout(() => client.talkedRecently.delete(message.author.id), getCooldownfromDB);
             }
 
-            // رولات اللفل
             try {
                 let Roles = sql.prepare("SELECT * FROM level_roles WHERE guildID = ? AND level = ?").get(message.guild.id, level.level);
                 if (Roles && message.member && !message.member.roles.cache.has(Roles.roleID)) {
