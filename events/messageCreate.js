@@ -1,12 +1,9 @@
-const { Events, PermissionsBitField } = require("discord.js");
+const { Events, PermissionsBitField, MessageFlags } = require("discord.js");
 const { handleStreakMessage, calculateBuffMultiplier, handleMediaStreakMessage } = require("../streak-handler.js");
 const { checkPermissions, checkCooldown } = require("../permission-handler.js");
-const { getReportSettings, hasReportPermission, sendReportError } = require("../handlers/report-handler.js");
 
-// (المتغيرات)
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// (دوال المساعدة)
 function getTodayDateString() {
     return new Date().toISOString().split('T')[0];
 }
@@ -20,7 +17,7 @@ function getWeekStartDateString() {
     return friday.toISOString().split('T')[0];
 }
 
-// (دالة تتبع الإحصائيات - 🌟 تم إصلاح الخطأ هنا 🌟)
+// --- (دالة تتبع الإحصائيات - تم إصلاح خطأ RangeError) ---
 async function trackMessageStats(message, client) {
     const sql = client.sql;
     try {
@@ -33,35 +30,32 @@ async function trackMessageStats(message, client) {
         const weeklyStatsId = `${authorID}-${guildID}-${weekStartDateStr}`;
         const totalStatsId = `${authorID}-${guildID}`;
 
-        // 1. جلب البيانات أو إنشاء بيانات جديدة
+        // 1. جلب البيانات
         let dailyStats = client.getDailyStats.get(dailyStatsId);
+        let weeklyStats = client.getWeeklyStats.get(weeklyStatsId);
+        let totalStats = client.getTotalStats.get(totalStatsId);
+
+        // 2. إنشاء البيانات الافتراضية إذا لم تكن موجودة
         if (!dailyStats) {
             dailyStats = { id: dailyStatsId, userID: authorID, guildID: guildID, date: dateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
         }
-
-        let weeklyStats = client.getWeeklyStats.get(weeklyStatsId);
         if (!weeklyStats) {
             weeklyStats = { id: weeklyStatsId, userID: authorID, guildID: guildID, weekStartDate: weekStartDateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
         }
-
-        let totalStats = client.getTotalStats.get(totalStatsId);
         if (!totalStats) {
             totalStats = { id: totalStatsId, userID: authorID, guildID: guildID, total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
         }
 
-        // 🌟🌟🌟 إصلاح القيم المفقودة (هام جداً) 🌟🌟🌟
+        // 3. 🌟🌟🌟 التصحيح الحاسم: ملء القيم المفقودة للمستخدمين القدامى 🌟🌟🌟
         // هذا يمنع خطأ Missing named parameter
         if (dailyStats.replies_sent === undefined) dailyStats.replies_sent = 0;
         if (dailyStats.mentions_received === undefined) dailyStats.mentions_received = 0;
-        
         if (weeklyStats.replies_sent === undefined) weeklyStats.replies_sent = 0;
         if (weeklyStats.mentions_received === undefined) weeklyStats.mentions_received = 0;
-        
         if (totalStats.total_replies_sent === undefined) totalStats.total_replies_sent = 0;
         if (totalStats.total_mentions_received === undefined) totalStats.total_mentions_received = 0;
-        // 🌟🌟🌟 نهاية الإصلاح 🌟🌟🌟
 
-
+        // 4. التحديث
         dailyStats.messages += 1;
         weeklyStats.messages += 1;
         totalStats.total_messages += 1;
@@ -82,6 +76,7 @@ async function trackMessageStats(message, client) {
             totalStats.total_replies_sent += 1;
         }
 
+        // 5. الحفظ
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         client.setTotalStats.run(totalStats);
@@ -90,6 +85,7 @@ async function trackMessageStats(message, client) {
         await client.checkQuests(client, message.member, weeklyStats, 'weekly', weekStartDateStr);
         await client.checkAchievements(client, message.member, null, totalStats);
 
+        // 6. معالجة المنشن
         if (message.mentions.users.size > 0) {
             message.mentions.users.forEach(async (mentionedUser) => {
                 if (mentionedUser.bot || mentionedUser.id === authorID) return;
@@ -98,20 +94,16 @@ async function trackMessageStats(message, client) {
                 const m_weeklyId = `${mentionedUser.id}-${guildID}-${weekStartDateStr}`;
                 const m_totalId = `${mentionedUser.id}-${guildID}`;
 
-                let m_daily = client.getDailyStats.get(m_dailyId);
-                if(!m_daily) m_daily = { id: m_dailyId, userID: mentionedUser.id, guildID: guildID, date: dateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-                
-                let m_weekly = client.getWeeklyStats.get(m_weeklyId);
-                if(!m_weekly) m_weekly = { id: m_weeklyId, userID: mentionedUser.id, guildID: guildID, weekStartDate: weekStartDateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-                
-                let m_total = client.getTotalStats.get(m_totalId);
-                if(!m_total) m_total = { id: m_totalId, userID: mentionedUser.id, guildID: guildID, total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
+                let m_daily = client.getDailyStats.get(m_dailyId) || { id: m_dailyId, userID: mentionedUser.id, guildID: guildID, date: dateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
+                let m_weekly = client.getWeeklyStats.get(m_weeklyId) || { id: m_weeklyId, userID: mentionedUser.id, guildID: guildID, weekStartDate: weekStartDateStr, messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
+                let m_total = client.getTotalStats.get(m_totalId) || { id: m_totalId, userID: mentionedUser.id, guildID: guildID, total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
 
-                // 🌟 إصلاح القيم المفقودة للمنشن أيضاً 🌟
+                // تصحيح المنشن أيضاً
                 if (m_daily.mentions_received === undefined) m_daily.mentions_received = 0;
                 if (m_weekly.mentions_received === undefined) m_weekly.mentions_received = 0;
                 if (m_total.total_mentions_received === undefined) m_total.total_mentions_received = 0;
-                if (m_daily.replies_sent === undefined) m_daily.replies_sent = 0; // للتأكد فقط
+                // (للتأكد من عدم تعطل الكود بسبب الأعمدة الأخرى)
+                if (m_daily.replies_sent === undefined) m_daily.replies_sent = 0;
 
                 m_daily.mentions_received += 1;
                 m_weekly.mentions_received += 1;
@@ -134,32 +126,8 @@ async function trackMessageStats(message, client) {
     }
 }
 
-// (كائن البيانات الافتراضية)
 const completeDefaultLevelData = {
-    xp: 0, 
-    level: 1, 
-    totalXP: 0, 
-    mora: 0,
-    lastWork: 0, 
-    lastDaily: 0, 
-    dailyStreak: 0, 
-    bank: 0, 
-    lastInterest: 0,
-    totalInterestEarned: 0, 
-    hasGuard: 0, 
-    guardExpires: 0, 
-    lastCollected: 0, 
-    totalVCTime: 0, 
-    lastRob: 0, 
-    lastGuess: 0, 
-    lastRPS: 0, 
-    lastRoulette: 0, 
-    lastTransfer: 0, 
-    lastDeposit: 0, 
-    shop_purchases: 0, 
-    total_meow_count: 0, 
-    boost_count: 0, 
-    lastPVP: 0
+    xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, total_meow_count: 0, boost_count: 0, lastPVP: 0
 };
 
 module.exports = {
@@ -168,15 +136,12 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        // --- 1. التعامل مع البوتات (بما في ذلك ديسبورد) ---
+        // --- 1. التعامل مع البوتات ---
         if (message.author.bot) {
             let settings;
             try {
                 settings = sql.prepare("SELECT bumpChannelID FROM settings WHERE guild = ?").get(message.guild.id);
-            } catch (err) {
-                settings = null;
-            }
-
+            } catch (err) { settings = null; }
             const BUMP_CHANNEL_ID = settings ? settings.bumpChannelID : null;
 
             if (message.author.id === DISBOARD_BOT_ID && BUMP_CHANNEL_ID && message.channel.id === BUMP_CHANNEL_ID) {
@@ -190,17 +155,15 @@ module.exports = {
                         try {
                             const member = await message.guild.members.fetch(userID);
                             if (!member) return;
-                            console.log(`[Disboard Bump] Bump registered for: ${member.user.tag}`);
                             await client.incrementQuestStats(userID, guildID, 'disboard_bumps');
+                            // تحديث الإحصائيات الكلية للبومب
                             const totalStatsId = `${userID}-${guildID}`;
                             let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID: userID, guildID: guildID, total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
                             totalStats.total_disboard_bumps = (totalStats.total_disboard_bumps || 0) + 1;
                             client.setTotalStats.run(totalStats);
                             const levelData = client.getLevel.get(userID, guildID);
                             await client.checkAchievements(client, member, levelData, totalStats);
-                        } catch (err) {
-                            console.error("[Disboard Bump Error]", err);
-                        }
+                        } catch (err) {}
                     }
                 }
             }
@@ -209,58 +172,48 @@ module.exports = {
 
         if (!message.guild) return;
 
-        let settings;
-        try {
-            settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
-        } catch (err) {
-            settings = null;
-        }
-
-        let reportSettings; 
-        try {
-            reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
-        } catch(e) {
-            reportSettings = null;
-        }
-
         // ====================================================
-        // 🚀 نظام الاختصارات (يعمل بدون بريفكس)
+        // 🚀 نظام الاختصارات (بدون بريفكس) - الأولوية الأولى 🚀
         // ====================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase(); 
             const shortcutArgs = argsRaw.slice(1); 
 
+            // البحث عن الاختصار
             const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
 
             if (shortcut) {
                 const command = client.commands.get(shortcut.commandName);
                 if (command) {
-                    // التحقق من الصلاحيات والكول داون
                     if (!checkPermissions(message, command)) return;
                     const cooldownMessage = checkCooldown(message, command);
                     if (cooldownMessage) {
-                        if (typeof cooldownMessage === 'string' && cooldownMessage.length > 0) {
-                            return message.reply(cooldownMessage);
-                        }
+                        if (typeof cooldownMessage === 'string') return message.reply(cooldownMessage);
                         return;
                     }
-                    // تنفيذ الأمر
                     try {
+                        // تنفيذ الأمر فوراً
                         await command.execute(message, shortcutArgs); 
-                        console.log(`[Shortcut] Executed ${command.name} via shortcut "${shortcutWord}"`);
+                        console.log(`[Shortcut] تم تنفيذ ${command.name} عبر الاختصار "${shortcutWord}"`);
                     } catch (error) {
                         console.error(error);
-                        message.reply("حدث خطأ أثناء تنفيذ الاختصار!");
                     }
-                    return; // نتوقف هنا لكي لا ينفذ شيء آخر
+                    // 🛑 توقف هنا! لا تكمل للكود الآخر (XP، ستريك، أوامر عادية)
+                    return; 
                 }
             }
         } catch (err) {
-            // تجاهل الأخطاء البسيطة
+             // تجاهل الأخطاء البسيطة في الاختصارات
         }
         // ====================================================
 
+
+        // جلب الإعدادات لباقي الكود
+        let settings;
+        try { settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id); } catch (err) { settings = null; }
+        let reportSettings; 
+        try { reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id); } catch(e) { reportSettings = null; }
 
         // (معالج قناة الكازينو)
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
@@ -271,53 +224,40 @@ module.exports = {
                 if (!checkPermissions(message, command)) return;
                 const cooldownMessage = checkCooldown(message, command);
                 if (cooldownMessage) {
-                    if (typeof cooldownMessage === 'string' && cooldownMessage.length > 0) {
-                        return message.reply(cooldownMessage);
-                    }
+                    if (typeof cooldownMessage === 'string') return message.reply(cooldownMessage);
                     return;
                 }
-                try {
-                    command.execute(message, args);
-                } catch (error) {
-                    console.error(error);
-                    message.reply("There was an error trying to execute that command!");
-                }
+                try { command.execute(message, args); } catch (error) { console.error(error); }
                 return;
             }
         }
 
-        // ( معالج قناة البلاغات )
+        // (معالج قناة البلاغات)
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
-
             const command = client.commands.get('بلاغ'); 
-
             if (command && (command.name === commandName || (command.aliases && command.aliases.includes(commandName)))) {
                  try {
                     const commandArgs = message.content.trim().split(/ +/).slice(1);
                     command.execute(message, commandArgs);
-                } catch (error) {
-                    console.error(error);
-                    message.reply("There was an error trying to execute the report command!");
-                }
+                } catch (error) { console.error(error); }
                 return; 
             }
         }
 
+        // (معالج الأوامر بالبريفكس العادي)
         let Prefix = "-"; 
         try {
             const prefixRow = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id);
-            if (prefixRow && prefixRow.serverprefix) {
-                Prefix = prefixRow.serverprefix;
-            }
-        } catch(e) { /* تجاهل الخطأ واستخدام البريفكس الافتراضي */ }
+            if (prefixRow && prefixRow.serverprefix) Prefix = prefixRow.serverprefix;
+        } catch(e) { }
 
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
-            if (!command) return;
+            if (!command) return; // ليس أمراً، أكمل للكود التالي (XP و Streak)
 
             args.prefix = Prefix;
 
@@ -328,79 +268,50 @@ module.exports = {
                 try {
                     const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
                     const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
-                    if (channelPerm || categoryPerm) {
-                        isAllowed = true;
-                    }
-                } catch (err) {
-                    console.error("[Whitelist Check Error]", err);
-                }
+                    if (channelPerm || categoryPerm) isAllowed = true;
+                } catch (err) {}
             }
-            if (!isAllowed) {
-                return;
-            }
+            if (!isAllowed) return;
             if (!checkPermissions(message, command)) return;
             const cooldownMessage = checkCooldown(message, command);
             if (cooldownMessage) {
-                if (typeof cooldownMessage === 'string' && cooldownMessage.length > 0) {
-                    return message.reply(cooldownMessage);
-                }
+                if (typeof cooldownMessage === 'string') return message.reply(cooldownMessage);
                 return;
             }
-            try {
-                command.execute(message, args);
-            } catch (error) {
-                console.error(error);
-                message.reply("There was an error trying to execute that command!");
-            }
-            return;
+            try { command.execute(message, args); } catch (error) { console.error(error); }
+            return; // توقف بعد تنفيذ الأمر
         }
+
+        // ====================================================
+        // ⬇️ الكود بالأسفل ينفذ فقط للرسائل العادية (ليست أوامر) ⬇️
+        // ====================================================
 
         // (كود البلاك ليست)
         try {
             let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
-        } catch (err) {
-            if (err.code === 'SQLITE_ERROR' && err.message.includes('no such table')) {
-            } else {
-                console.error(err);
-            }
-        }
+        } catch (err) {}
 
-        // (كود المهام (العد، مياو))
+        // (كود المهام: العد، مياو)
         try {
             if (settings && settings.countingChannelID && message.channel.id === settings.countingChannelID) {
                 setTimeout(async () => {
                     try {
                         const fetchedMsg = await message.channel.messages.fetch(message.id);
-                        if (fetchedMsg) {
-                            await client.incrementQuestStats(message.author.id, message.guild.id, 'counting_channel');
-                        }
-                    } catch (err) {
-                    }
+                        if (fetchedMsg) await client.incrementQuestStats(message.author.id, message.guild.id, 'counting_channel');
+                    } catch (err) {}
                 }, 5000);
             }
 
             if (message.content.toLowerCase().includes('مياو')) {
                 await client.incrementQuestStats(message.author.id, message.guild.id, 'meow_count');
-
                 let levelData = client.getLevel.get(message.author.id, message.guild.id);
-                if (!levelData) {
-                    levelData = {
-                        ...(client.defaultData || {}), 
-                        ...completeDefaultLevelData, 
-                        user: message.author.id,
-                        guild: message.guild.id
-                    };
-                }
-
+                if (!levelData) levelData = { ...(client.defaultData || {}), ...completeDefaultLevelData, user: message.author.id, guild: message.guild.id };
                 levelData.total_meow_count = (levelData.total_meow_count || 0) + 1;
                 client.setLevel.run(levelData);
                 await client.checkAchievements(client, message.member, levelData, null);
             }
-
-        } catch (err) {
-            console.error("[Quest Message Tracker Error]", err);
-        }
+        } catch (err) {}
 
         // (كود ستريك الميديا)
         try {
@@ -409,57 +320,35 @@ module.exports = {
                 const hasMedia = message.attachments.size > 0 || message.embeds.some(e => e.image || e.video);
                 if (hasMedia) {
                     await handleMediaStreakMessage(message);
-                    return; 
+                    return; // ميديا ستريك فقط، لا XP ولا رسائل
                 }
             }
-        } catch (err) {
-            console.error("Error checking media streak:", err);
-        }
+        } catch (err) {}
 
         // (كود الستريك)
         try {
             await handleStreakMessage(message);
-        } catch (err) {
-            console.error("Error in handleStreakMessage:", err);
-        }
+        } catch (err) {}
 
-        // (كود تتبع الإحصائيات)
+        // (كود تتبع الإحصائيات - الذي كان يسبب المشكلة)
         try {
             await trackMessageStats(message, client);
-        } catch (err) {
-            console.error("Error in trackMessageStats (MessageCreate):", err);
-        }
+        } catch (err) { console.error("Error in trackMessageStats:", err); }
 
 
         // (كود الـ XP)
         let level = client.getLevel.get(message.author.id, message.guild.id);
+        if (!level) level = { ...(client.defaultData || {}), ...completeDefaultLevelData, user: message.author.id, guild: message.guild.id };
 
-        if (!level) {
-            level = {
-                ...(client.defaultData || {}), 
-                ...completeDefaultLevelData, 
-                user: message.author.id,
-                guild: message.guild.id
-            };
-        }
-
-        let customSettings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
-        let channelLevel;
-        try {
-            channelLevel = sql.prepare("SELECT * FROM channel WHERE guild = ?").get(message.guild.id);
-        } catch (e) {
-        }
-
-        const lvl = level.level;
         let getXpfromDB;
         let getCooldownfromDB;
 
-        if (!customSettings || !customSettings.customXP || !customSettings.customCooldown) {
+        if (!settings || !settings.customXP || !settings.customCooldown) {
             getXpfromDB = 25;
             getCooldownfromDB = 60000;
         } else {
-            getXpfromDB = customSettings.customXP;
-            getCooldownfromDB = customSettings.customCooldown;
+            getXpfromDB = settings.customXP;
+            getCooldownfromDB = settings.customCooldown;
         }
 
         const generatedXp_base = Math.floor(Math.random() * (getXpfromDB - 1 + 1)) + 1;
@@ -481,7 +370,6 @@ module.exports = {
                 level.xp -= nextXP;
                 level.level += 1;
                 const newLevel = level.level;
-
                 await client.sendLevelUpMessage(message, message.member, newLevel, oldLevel, level);
                 await client.checkAchievements(client, message.member, level, null); 
             }
@@ -492,29 +380,19 @@ module.exports = {
         }
 
         // (كود رولات اللفل)
+        const lvl = level.level;
         const member = message.member;
         try {
-            // ( 🌟 ملاحظة: هذا الجدول اسمه "level_roles" في قاعدة بياناتك 🌟 )
             let Roles = sql.prepare("SELECT * FROM level_roles WHERE guildID = ? AND level = ?");
             let roles = Roles.get(message.guild.id, lvl);
             if (!roles) return;
             if (lvl >= roles.level) {
                 if (roles) {
-                    if (member.roles.cache.has(roles.roleID)) {
-                        return;
-                    }
-                    if (!message.guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
-                        return;
-                    }
+                    if (member.roles.cache.has(roles.roleID)) return;
+                    if (!message.guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) return;
                     member.roles.add(roles.roleID);
                 }
             }
-        } catch (err) {
-            if (err.code === 'SQLITE_ERROR' && err.message.includes('no such table')) {
-                 // (تم تجاهل الخطأ إذا كان الجدول "roles" القديم غير موجود)
-            } else {
-                console.error(err);
-            }
-        }
+        } catch (err) {}
     },
 };
