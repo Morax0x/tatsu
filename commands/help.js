@@ -170,7 +170,7 @@ function buildAdminManagementEmbed(client) {
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('اوامر')
+        .setName('مساعدة')
         .setDescription('عرض قائمة المساعدة التفاعلية.')
         .addStringOption(option =>
             option.setName('اسم-الامر')
