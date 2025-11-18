@@ -1,10 +1,11 @@
 const { PermissionsBitField, SlashCommandBuilder } = require("discord.js");
+// تأكد أن المسار صحيح لملف streak-handler
 const { updateNickname } = require("../../streak-handler.js"); 
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('تحديد-الستريك')
-        .setDescription('يحدد ستريك مستخدم معين يدوياً.')
+        .setDescription('يحدد ستريك مستخدم معين يدوياً ويحدث اسمه.')
         .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild)
         .addUserOption(option =>
             option.setName('المستخدم')
@@ -22,7 +23,6 @@ module.exports = {
     description: "يحدد ستريك مستخدم معين يدوياً.",
 
     async execute(interactionOrMessage, args) {
-
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         let interaction, message, guild, client, member;
 
@@ -41,67 +41,55 @@ module.exports = {
 
         const sql = client.sql;
 
-        const reply = async (payload) => {
-            if (typeof payload === 'string') payload = { content: payload };
-            payload.ephemeral = false; 
-            if (isSlash) return interaction.editReply(payload);
-            return message.reply(payload);
-        };
-        const replyError = async (content) => {
-            const payload = { content, ephemeral: true };
+        const reply = async (content) => {
+            const payload = { content, ephemeral: false }; 
             if (isSlash) return interaction.editReply(payload);
             return message.reply(payload);
         };
 
         if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-            return replyError(`ليس لديك صلاحية الإدارة!`);
+            return reply(`❌ | ليس لديك صلاحية الإدارة!`);
         }
 
-        let user; 
+        let targetMember; 
         let count;
 
+        // جلب العضو (Member) وليس المستخدم (User) لأننا نحتاج لتغيير اسمه
         if (isSlash) {
-            user = interaction.options.getMember('المستخدم');
+            targetMember = interaction.options.getMember('المستخدم');
             count = interaction.options.getInteger('العدد');
         } else {
-            user = message.mentions.members.first() || message.guild.members.cache.get(args[0]);
+            targetMember = message.mentions.members.first() || guild.members.cache.get(args[0]);
             count = parseInt(args[1]);
         }
 
-        if (!user || isNaN(count) || count < 0) {
-            return replyError("الاستخدام: `/تحديد-الستريك <@user> <العدد>`");
+        if (!targetMember || isNaN(count) || count < 0) {
+            return reply("❌ | الاستخدام: `/تحديد-الستريك <@user> <العدد>`");
         }
 
-        const getStreak = sql.prepare("SELECT * FROM streaks WHERE guildID = ? AND userID = ?");
-        const setStreak = sql.prepare("INSERT OR REPLACE INTO streaks (id, guildID, userID, streakCount, lastMessageTimestamp, hasGracePeriod, hasItemShield) VALUES (@id, @guildID, @userID, @streakCount, @lastMessageTimestamp, @hasGracePeriod, @hasItemShield);");
-
-        let streakData = getStreak.get(guild.id, user.id);
-
-        if (!streakData) {
-            streakData = {
-                id: `${guild.id}-${user.id}`,
-                guildID: guild.id,
-                userID: user.id,
-                streakCount: count,
-                lastMessageTimestamp: Date.now(),
-                hasGracePeriod: 1,
-                hasItemShield: 0
-            };
-        } else {
-            streakData.streakCount = count;
-            streakData.lastMessageTimestamp = Date.now();
-        }
-
-        setStreak.run(streakData);
-
-        // ( 🌟🌟🌟 التصحيح هنا: تمرير sql كمعامل ثالث 🌟🌟🌟 )
         try {
-            await updateNickname(user, count, sql);
-        } catch (err) {
-            console.error("Failed to update nickname:", err);
-            // لا نوقف الأمر، فقط نسجل الخطأ (لأن البوت قد لا يملك صلاحية تغيير اسم المشرفين)
-        }
+            // 1. تحديث قاعدة البيانات
+            const setStreak = sql.prepare(`
+                INSERT INTO streaks (id, guildID, userID, streakCount, lastMessageTimestamp, hasGracePeriod, hasItemShield) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET 
+                streakCount = excluded.streakCount,
+                lastMessageTimestamp = excluded.lastMessageTimestamp
+            `);
 
-        return reply(`✅ تم تحديد ستريك ${user.toString()} إلى **${count}🔥** وتحديث اسمه.`);
+            const streakId = `${guild.id}-${targetMember.id}`;
+            // نستخدم التاريخ الحالي
+            setStreak.run(streakId, guild.id, targetMember.id, count, Date.now(), 1, 0);
+
+            // 2. تحديث اسم المستخدم (اللقب)
+            // نمرر العضو، العدد، والاتصال بقاعدة البيانات (إذا كانت الدالة تحتاجه)
+            await updateNickname(targetMember, count, sql);
+
+            return reply(`✅ | تم تحديد ستريك ${targetMember.toString()} إلى **${count}🔥** وتم تحديث اسمه.`);
+
+        } catch (err) {
+            console.error(err);
+            return reply("⚠️ | تم تحديث الستريك في القاعدة، لكن حدث خطأ أثناء تغيير الاسم (تأكد من صلاحيات البوت).");
+        }
     }
 };
