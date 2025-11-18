@@ -39,15 +39,13 @@ const client = new Client({
     ]
 });
 
-// 4. المجموعات والمتغيرات العامة
+// 4. المتغيرات العامة
 client.commands = new Collection();
 client.cooldowns = new Collection();
 client.talkedRecently = new Map();
 const voiceXPCooldowns = new Map();
-
 client.recentMessageTimestamps = new Collection(); 
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
-
 const botToken = process.env.DISCORD_BOT_TOKEN;
 
 // ربط المتغيرات
@@ -69,6 +67,24 @@ require('./handlers/backup-scheduler.js')(client, sql);
 // --- القوالب الافتراضية ---
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
+
+// ✅ تعريف دالة safeMerge وربطها بالعميل (لحل مشكلة ReferenceError)
+client.safeMerge = function(base, defaults) {
+    const result = { ...base };
+    for (const key in defaults) {
+        if (result[key] === undefined || result[key] === null) result[key] = defaults[key];
+    }
+    return result;
+};
+
+function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
+function getWeekStartDateString() {
+    const now = new Date();
+    const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
+    const friday = new Date(now.setUTCDate(diff));
+    friday.setUTCHours(0, 0, 0, 0); 
+    return friday.toISOString().split('T')[0];
+}
 
 // ==================================================================
 // 🌟🌟 دوال النظام الأساسية 🌟🌟
@@ -111,7 +127,6 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
         await client.checkAndAwardLevelRoles(member, newLevel);
         const guild = messageOrInteraction.guild;
         
-        // تحديد القناة
         let channelToSend = messageOrInteraction.channel;
         try {
             let channelData = sql.prepare("SELECT channel FROM channel WHERE guild = ?").get(guild.id);
@@ -151,7 +166,7 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
     } catch (err) { console.error(`[LevelUp Error]: ${err.message}`); }
 }
 
-// 3. إعلان إنجاز المهمة
+// 3. إعلان إنجاز المهمة (مع Fallback)
 client.sendQuestAnnouncement = async function(guild, member, quest, questType = 'achievement') {
     try {
         const id = `${member.id}-${guild.id}`;
@@ -255,7 +270,7 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
     }
 }
 
-// 5. التحقق من الإنجازات (Mappings Fixed)
+// 5. التحقق من الإنجازات (مع تصحيح الأسماء)
 client.checkAchievements = async function(client, member, levelData, totalStatsData) {
     for (const ach of questsConfig.achievements) {
         let currentProgress = 0;
@@ -263,8 +278,10 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
         const mediaStreakData = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND userID = ?").get(member.guild.id, member.id);
         
         if (!totalStatsData) totalStatsData = client.getTotalStats.get(`${member.id}-${member.guild.id}`) || {};
-        totalStatsData = safeMerge(totalStatsData, defaultTotalStats); 
+        // ✅ استخدام client.safeMerge هنا أيضاً
+        totalStatsData = client.safeMerge(totalStatsData, defaultTotalStats); 
 
+        // ✅ ربط القيم (Mapping) لتفادي مشكلة الأسماء المختلفة
         if (ach.stat === 'messages') currentProgress = totalStatsData.total_messages || 0;
         else if (ach.stat === 'images') currentProgress = totalStatsData.total_images || 0;
         else if (ach.stat === 'stickers') currentProgress = totalStatsData.total_stickers || 0;
@@ -272,6 +289,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
         else if (ach.stat === 'replies_sent') currentProgress = totalStatsData.total_replies_sent || 0;
         else if (ach.stat === 'vc_minutes') currentProgress = totalStatsData.total_vc_minutes || 0;
         else if (ach.stat === 'disboard_bumps') currentProgress = totalStatsData.total_disboard_bumps || 0;
+        else if (ach.stat === 'meow_count') currentProgress = levelData?.total_meow_count || 0; 
         else if (levelData && levelData.hasOwnProperty(ach.stat)) currentProgress = levelData[ach.stat];
         else if (totalStatsData.hasOwnProperty(ach.stat)) currentProgress = totalStatsData[ach.stat];
         else if (ach.stat === 'highestStreak' && streakData) currentProgress = streakData.highestStreak || 0;
@@ -303,7 +321,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
-// 6. تحديث الإحصائيات (Increment Stats)
+// 6. تحديث الإحصائيات (للـ Bumps وغيرها)
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     if (stat === 'messages') {
         if (!client.recentMessageTimestamps.has(guildID)) client.recentMessageTimestamps.set(guildID, []);
@@ -323,9 +341,9 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID, guildID, weekStartDate: weekStartDateStr };
         let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID, guildID };
 
-        dailyStats = safeMerge(dailyStats, defaultDailyStats);
-        weeklyStats = safeMerge(weeklyStats, defaultWeeklyStats);
-        totalStats = safeMerge(totalStats, defaultTotalStats);
+        dailyStats = client.safeMerge(dailyStats, defaultDailyStats);
+        weeklyStats = client.safeMerge(weeklyStats, defaultDailyStats);
+        totalStats = client.safeMerge(totalStats, defaultTotalStats);
 
         if (dailyStats.hasOwnProperty(stat)) dailyStats[stat] = (dailyStats[stat] || 0) + amount;
         if (weeklyStats.hasOwnProperty(stat)) weeklyStats[stat] = (weeklyStats[stat] || 0) + amount;
@@ -334,8 +352,8 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
-        // ⚠️⚠️⚠️ التصحيح الكبير هنا ⚠️⚠️⚠️
-        // تم استخدام أسماء الحقول الصحيحة للإدخال في جدول التوتال
+        
+        // ✅ تمرير القيم الصحيحة للأعمدة
         client.setTotalStats.run({
             id: totalStatsId,
             userID,
@@ -344,8 +362,8 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
             total_images: totalStats.total_images,
             total_stickers: totalStats.total_stickers,
             total_reactions_added: totalStats.total_reactions_added,
-            replies_sent: totalStats.total_replies_sent, // هنا الاسم في الأمر INSERT هو @replies_sent ولكنه يدخل في total_replies_sent
-            mentions_received: totalStats.total_mentions_received,
+            replies_sent: totalStats.total_replies_sent, // ✅ الاسم الصحيح
+            mentions_received: totalStats.total_mentions_received, // ✅ الاسم الصحيح
             total_vc_minutes: totalStats.total_vc_minutes,
             total_disboard_bumps: totalStats.total_disboard_bumps
         });
@@ -397,7 +415,7 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
 
 // --- عند تشغيل البوت ---
 client.on(Events.ClientReady, async () => { 
-    console.log(`✅ Logged in as ${client.user.username} (Corrected Parameters)`);
+    console.log(`✅ Logged in as ${client.user.username} (Safe Merge & Mapping Fixes)`);
     
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
     client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP);");
@@ -407,239 +425,42 @@ client.on(Events.ClientReady, async () => {
     client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
     client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
     
-    // ⚠️⚠️⚠️ تصحيح أمر الإدخال للـ TOTAL STATS ⚠️⚠️⚠️
+    // ⚠️ تصحيح أسماء المتغيرات في الاستعلام
     client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
-    // هنا نستخدم @replies_sent و @mentions_received لأننا سنمررها بهذه الأسماء في دالة run
     client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @replies_sent, @mentions_received, @total_vc_minutes, @total_disboard_bumps);");
     
     client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
     client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
-
+    
     client.antiRolesCache = new Map();
     await loadRoleSettings(sql, client.antiRolesCache);
 
     console.log("[System] Starting background tasks...");
-    
-    const calculateInterest = () => {};
-    calculateInterest();
-    setInterval(calculateInterest, 60 * 60 * 1000);
+    const calculateInterest = () => {}; calculateInterest(); setInterval(calculateInterest, 60 * 60 * 1000);
+    const checkLoanPayments = async () => {}; checkLoanPayments(); setInterval(checkLoanPayments, 60 * 60 * 1000);
+    function updateMarketPrices() { try { const allItems = sql.prepare("SELECT * FROM market_items").all(); if (allItems.length === 0) return; const updateStmt = sql.prepare(`UPDATE market_items SET currentPrice = ?, lastChangePercent = ?, lastChange = ? WHERE id = ?`); const transaction = sql.transaction(() => { for (const item of allItems) { const minChange = -0.05; const maxChange = 0.10; const changePercent = Math.random() * (maxChange - minChange) + minChange; const oldPrice = item.currentPrice; let newPrice = Math.max(10, Math.floor(oldPrice * (1 + changePercent))); const changeAmount = newPrice - oldPrice; updateStmt.run(newPrice, (changePercent * 100).toFixed(2), changeAmount, item.id); } }); transaction(); } catch (err) { console.error("[Market] Error:", err.message); } }
+    updateMarketPrices(); setInterval(updateMarketPrices, 60 * 60 * 1000);
 
-    const checkLoanPayments = async () => {};
-    checkLoanPayments();
-    setInterval(checkLoanPayments, 60 * 60 * 1000);
-
-    function updateMarketPrices() {
-        try {
-            const allItems = sql.prepare("SELECT * FROM market_items").all();
-            if (allItems.length === 0) return;
-            const updateStmt = sql.prepare(`UPDATE market_items SET currentPrice = ?, lastChangePercent = ?, lastChange = ? WHERE id = ?`);
-            const transaction = sql.transaction(() => {
-                for (const item of allItems) {
-                    const minChange = -0.05; const maxChange = 0.10; 
-                    const changePercent = Math.random() * (maxChange - minChange) + minChange;
-                    const oldPrice = item.currentPrice;
-                    let newPrice = Math.max(10, Math.floor(oldPrice * (1 + changePercent))); 
-                    const changeAmount = newPrice - oldPrice;
-                    updateStmt.run(newPrice, (changePercent * 100).toFixed(2), changeAmount, item.id);
-                }
-            });
-            transaction();
-        } catch (err) { console.error("[Market] Error:", err.message); }
-    }
-    updateMarketPrices();
-    setInterval(updateMarketPrices, 60 * 60 * 1000);
-
-    const STAT_TICK_RATE = 60000; 
-    const MINUTES_PER_TICK = 1; 
-    const SECONDS_PER_TICK = 60; 
-    
-    setInterval(() => {
-        const dateStr = getTodayDateString();
-        const weekStartDateStr = getWeekStartDateString(); 
-        client.guilds.cache.forEach(guild => {
-            const settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id);
-            if (!settings) return;
-            const giveVoiceXP = settings.voiceXP > 0 && settings.voiceCooldown > 0;
-            const voiceXP = settings.voiceXP || 0;
-            const voiceCooldown = settings.voiceCooldown || 60000;
-            guild.channels.cache.filter(c => c.type === ChannelType.GuildVoice).forEach(channel => {
-                channel.members.forEach(async (member) => {
-                    if (member.user.bot || member.voice.channelID === guild.afkChannelId) return;
-                    const dailyStatsId = `${member.id}-${guild.id}-${dateStr}`;
-                    const weeklyStatsId = `${member.id}-${guild.id}-${weekStartDateStr}`;
-                    const totalStatsId = `${member.id}-${guild.id}`;
-                    let level = client.getLevel.get(member.id, guild.id);
-                    if (!level) { level = { ...client.defaultData, user: member.id, guild: guild.id }; }
-                    
-                    let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID: member.id, guildID: guild.id, date: dateStr };
-                    let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID: member.id, guildID: guild.id, weekStartDate: weekStartDateStr };
-                    let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID: member.id, guildID: guild.id };
-
-                    dailyStats = safeMerge(dailyStats, defaultDailyStats);
-                    weeklyStats = safeMerge(weeklyStats, defaultDailyStats);
-                    totalStats = safeMerge(totalStats, defaultTotalStats);
-
-                    let statsChanged = false;
-                    if (!member.voice.selfMute && !member.voice.selfDeaf) {
-                        dailyStats.vc_minutes += MINUTES_PER_TICK;
-                        weeklyStats.vc_minutes += MINUTES_PER_TICK;
-                        totalStats.total_vc_minutes += MINUTES_PER_TICK;
-                        level.totalVCTime += SECONDS_PER_TICK; 
-                        statsChanged = true;
-                    }
-                    if (member.voice.streaming) {
-                        dailyStats.streaming_minutes += MINUTES_PER_TICK;
-                        weeklyStats.streaming_minutes += MINUTES_PER_TICK;
-                        statsChanged = true;
-                    }
-                    if (giveVoiceXP && !member.voice.selfMMute && !member.voice.selfDeaf) {
-                        const cooldownKey = `${guild.id}-${member.id}`;
-                        const now = Date.now();
-                        const lastGain = voiceXPCooldowns.get(cooldownKey);
-                        if (!lastGain || (now - lastGain) >= voiceCooldown) {
-                            const baseXP = voiceXP;
-                            const buffMultiplier = calculateBuffMultiplier(member, sql);
-                            const finalXP = Math.floor(baseXP * buffMultiplier);
-                            level.xp += finalXP;
-                            level.totalXP += finalXP;
-                            statsChanged = true;
-                            voiceXPCooldowns.set(cooldownKey, now);
-                        }
-                    }
-                    if (statsChanged) {
-                        const nextXP = 5 * (level.level ** 2) + (50 * level.level) + 100;
-                        if (level.xp >= nextXP) {
-                            const oldLevel = level.level;
-                            level.xp -= nextXP;
-                            level.level += 1;
-                            const newLevel = level.level;
-                            client.sendLevelUpMessage(message, member, newLevel, oldLevel, level).catch(console.error);
-                        }
-                    }
-                    if (statsChanged) {
-                        client.setDailyStats.run(dailyStats);
-                        client.setWeeklyStats.run(weeklyStats);
-                        
-                        // ⚠️ تصحيح الإدخال هنا أيضاً للـ Voice ⚠️
-                        client.setTotalStats.run({
-                            id: totalStatsId,
-                            userID: member.id,
-                            guildID: guild.id,
-                            total_messages: totalStats.total_messages,
-                            total_images: totalStats.total_images,
-                            total_stickers: totalStats.total_stickers,
-                            total_reactions_added: totalStats.total_reactions_added,
-                            replies_sent: totalStats.total_replies_sent,
-                            mentions_received: totalStats.total_mentions_received,
-                            total_vc_minutes: totalStats.total_vc_minutes,
-                            total_disboard_bumps: totalStats.total_disboard_bumps
-                        });
-                        
-                        client.setLevel.run(level); 
-                        await client.checkQuests(client, member, dailyStats, 'daily', dateStr);
-                        await client.checkQuests(client, member, weeklyStats, 'weekly', weekStartDateStr);
-                        await client.checkAchievements(client, member, level, totalStats);
-                    }
-                });
-            });
-        });
-    }, STAT_TICK_RATE); 
-
-    checkDailyStreaks(client, sql);
-    setInterval(() => checkDailyStreaks(client, sql), 3600000); 
-
-    checkDailyMediaStreaks(client, sql);
-    setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); 
-
-    checkUnjailTask(client); 
-    setInterval(() => checkUnjailTask(client), 5 * 60 * 1000); 
-
-    let lastReminderSentHour = -1;
-    let lastUpdateSentHour = -1;
-    let lastWarningSentHour = -1; 
-
-    setInterval(() => { 
-        const KSA_TIMEZONE = 'Asia/Riyadh';
-        const nowKSA = new Date().toLocaleString('en-US', { timeZone: KSA_TIMEZONE });
-        const ksaDate = new Date(nowKSA);
-        const ksaHour = ksaDate.getHours();
-
-        if (ksaHour === 0 && lastUpdateSentHour !== ksaHour) {
-            sendDailyMediaUpdate(client, sql);
-            lastUpdateSentHour = ksaHour;
-        } else if (ksaHour !== 0) lastUpdateSentHour = -1;
-
-        if (ksaHour === 12 && lastWarningSentHour !== ksaHour) {
-            sendStreakWarnings(client, sql); 
-            lastWarningSentHour = ksaHour;
-        } else if (ksaHour !== 12) lastWarningSentHour = -1;
-
-        if (ksaHour === 15 && lastReminderSentHour !== ksaHour) {
-            sendMediaStreakReminders(client, sql);
-            lastReminderSentHour = ksaHour;
-        } else if (ksaHour !== 15) lastReminderSentHour = -1;
-    }, 60000); 
-
-    const lastRandomGiveawayDate = new Map();
-    setInterval(async () => {
-        const today = new Date().toISOString().split('T')[0];
-        const now = Date.now(); 
-        for (const guild of client.guilds.cache.values()) {
-            const guildID = guild.id;
-            if (lastRandomGiveawayDate.get(guildID) === today) continue; 
-            const guildTimestamps = client.recentMessageTimestamps.get(guildID) || [];
-            while (guildTimestamps.length > 0 && guildTimestamps[0] < (now - RECENT_MESSAGE_WINDOW)) { guildTimestamps.shift(); }
-            const totalMessagesLast2Hours = guildTimestamps.length;
-            if (totalMessagesLast2Hours < 200) continue; 
-            const roll = Math.random();
-            if (roll < 0.10) { 
-                try {
-                    const success = await createRandomDropGiveaway(client, guild);
-                    if (success) {
-                        lastRandomGiveawayDate.set(guildID, today);
-                        console.log(`[DropGA] Success: ${guild.name}`);
-                    }
-                } catch (err) { console.error(`[DropGA] Error:`, err.message); }
-            }
-        }
-    }, 30 * 60 * 1000); 
-    sendDailyMediaUpdate(client, sql);
+    const STAT_TICK_RATE = 60000; const MINUTES_PER_TICK = 1; const SECONDS_PER_TICK = 60; 
+    setInterval(() => { const dateStr = getTodayDateString(); const weekStartDateStr = getWeekStartDateString(); client.guilds.cache.forEach(guild => { const settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id); if (!settings) return; const giveVoiceXP = settings.voiceXP > 0 && settings.voiceCooldown > 0; const voiceXP = settings.voiceXP || 0; const voiceCooldown = settings.voiceCooldown || 60000; guild.channels.cache.filter(c => c.type === ChannelType.GuildVoice).forEach(channel => { channel.members.forEach(async (member) => { if (member.user.bot || member.voice.channelID === guild.afkChannelId) return; const dailyStatsId = `${member.id}-${guild.id}-${dateStr}`; const weeklyStatsId = `${member.id}-${guild.id}-${weekStartDateStr}`; const totalStatsId = `${member.id}-${guild.id}`; let level = client.getLevel.get(member.id, guild.id); if (!level) { level = { ...client.defaultData, user: member.id, guild: guild.id }; } let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID: member.id, guildID: guild.id, date: dateStr }; let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID: member.id, guildID: guild.id, weekStartDate: weekStartDateStr }; let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID: member.id, guildID: guild.id }; dailyStats = client.safeMerge(dailyStats, defaultDailyStats); weeklyStats = client.safeMerge(weeklyStats, defaultDailyStats); totalStats = client.safeMerge(totalStats, defaultTotalStats); let statsChanged = false; if (!member.voice.selfMute && !member.voice.selfDeaf) { dailyStats.vc_minutes += MINUTES_PER_TICK; weeklyStats.vc_minutes += MINUTES_PER_TICK; totalStats.total_vc_minutes += MINUTES_PER_TICK; level.totalVCTime += SECONDS_PER_TICK; statsChanged = true; } if (member.voice.streaming) { dailyStats.streaming_minutes += MINUTES_PER_TICK; weeklyStats.streaming_minutes += MINUTES_PER_TICK; statsChanged = true; } if (giveVoiceXP && !member.voice.selfMMute && !member.voice.selfDeaf) { const cooldownKey = `${guild.id}-${member.id}`; const now = Date.now(); const lastGain = voiceXPCooldowns.get(cooldownKey); if (!lastGain || (now - lastGain) >= voiceCooldown) { const baseXP = voiceXP; const buffMultiplier = calculateBuffMultiplier(member, sql); const finalXP = Math.floor(baseXP * buffMultiplier); level.xp += finalXP; level.totalXP += finalXP; statsChanged = true; voiceXPCooldowns.set(cooldownKey, now); } } if (statsChanged) { const nextXP = 5 * (level.level ** 2) + (50 * level.level) + 100; if (level.xp >= nextXP) { const oldLevel = level.level; level.xp -= nextXP; level.level += 1; const newLevel = level.level; client.sendLevelUpMessage(null, member, newLevel, oldLevel, level).catch(console.error); } } if (statsChanged) { client.setDailyStats.run(dailyStats); client.setWeeklyStats.run(weeklyStats); 
+    // ⚠️ تحديث SQL الصوت ⚠️
+    client.setTotalStats.run({ id: totalStatsId, userID: member.id, guildID: guild.id, total_messages: totalStats.total_messages, total_images: totalStats.total_images, total_stickers: totalStats.total_stickers, total_reactions_added: totalStats.total_reactions_added, replies_sent: totalStats.total_replies_sent, mentions_received: totalStats.total_mentions_received, total_vc_minutes: totalStats.total_vc_minutes, total_disboard_bumps: totalStats.total_disboard_bumps }); client.setLevel.run(level); await client.checkQuests(client, member, dailyStats, 'daily', dateStr); await client.checkQuests(client, member, weeklyStats, 'weekly', weekStartDateStr); await client.checkAchievements(client, member, level, totalStats); } }); }); }); }, STAT_TICK_RATE); 
+    checkDailyStreaks(client, sql); setInterval(() => checkDailyStreaks(client, sql), 3600000); 
+    checkDailyMediaStreaks(client, sql); setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); 
+    checkUnjailTask(client); setInterval(() => checkUnjailTask(client), 5 * 60 * 1000); 
+    let lastReminderSentHour = -1; let lastUpdateSentHour = -1; let lastWarningSentHour = -1; 
+    setInterval(() => { const KSA_TIMEZONE = 'Asia/Riyadh'; const nowKSA = new Date().toLocaleString('en-US', { timeZone: KSA_TIMEZONE }); const ksaDate = new Date(nowKSA); const ksaHour = ksaDate.getHours(); if (ksaHour === 0 && lastUpdateSentHour !== ksaHour) { sendDailyMediaUpdate(client, sql); lastUpdateSentHour = ksaHour; } else if (ksaHour !== 0) lastUpdateSentHour = -1; if (ksaHour === 12 && lastWarningSentHour !== ksaHour) { sendStreakWarnings(client, sql); lastWarningSentHour = ksaHour; } else if (ksaHour !== 12) lastWarningSentHour = -1; if (ksaHour === 15 && lastReminderSentHour !== ksaHour) { sendMediaStreakReminders(client, sql); lastReminderSentHour = ksaHour; } else if (ksaHour !== 15) lastReminderSentHour = -1; }, 60000); 
+    const lastRandomGiveawayDate = new Map(); setInterval(async () => { const today = new Date().toISOString().split('T')[0]; const now = Date.now(); for (const guild of client.guilds.cache.values()) { const guildID = guild.id; if (lastRandomGiveawayDate.get(guildID) === today) continue; const guildTimestamps = client.recentMessageTimestamps.get(guildID) || []; while (guildTimestamps.length > 0 && guildTimestamps[0] < (now - RECENT_MESSAGE_WINDOW)) { guildTimestamps.shift(); } const totalMessagesLast2Hours = guildTimestamps.length; if (totalMessagesLast2Hours < 200) continue; const roll = Math.random(); if (roll < 0.10) { try { const success = await createRandomDropGiveaway(client, guild); if (success) { lastRandomGiveawayDate.set(guildID, today); console.log(`[DropGA] Success: ${guild.name}`); } } catch (err) { console.error(`[DropGA] Error:`, err.message); } } } }, 30 * 60 * 1000); sendDailyMediaUpdate(client, sql);
 }); 
 
-function loadCommands(dir) {
-    const files = fs.readdirSync(dir);
-    for (const file of files) {
-        const fullPath = path.join(dir, file);
-        const stat = fs.statSync(fullPath);
-        if (stat.isDirectory()) {
-            loadCommands(fullPath);
-        } else if (file.endsWith('.js')) {
-            try {
-                const command = require(fullPath);
-                const commandName = command.data ? command.data.name : command.name;
-                if (commandName && 'execute' in command) {
-                    client.commands.set(commandName, command);
-                } else { console.warn(`[CMD Warn] Skipped: ${file}`); }
-            } catch (error) { console.error(`[CMD Error] ${file}:`, error); }
-        }
-    }
-}
-loadCommands(path.join(__dirname, 'commands'));
-console.log("[System] Commands Loaded.");
+function loadCommands(dir) { const files = fs.readdirSync(dir); for (const file of files) { const fullPath = path.join(dir, file); const stat = fs.statSync(fullPath); if (stat.isDirectory()) { loadCommands(fullPath); } else if (file.endsWith('.js')) { try { const command = require(fullPath); const commandName = command.data ? command.data.name : command.name; if (commandName && 'execute' in command) { client.commands.set(commandName, command); } else { console.warn(`[CMD Warn] Skipped: ${file}`); } } catch (error) { console.error(`[CMD Error] ${file}:`, error); } } } }
+loadCommands(path.join(__dirname, 'commands')); console.log("[System] Commands Loaded.");
 
 require('./interaction-handler.js')(client, sql);
 
 const eventsPath = path.join(__dirname, 'events');
 const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
-for (const file of eventFiles) {
-    const filePath = path.join(eventsPath, file);
-    const event = require(filePath);
-    if (event.once) {
-        client.once(event.name, (...args) => event.execute(...args));
-    } else {
-        client.on(event.name, (...args) => event.execute(...args));
-    }
-}
+for (const file of eventFiles) { const filePath = path.join(eventsPath, file); const event = require(filePath); if (event.once) { client.once(event.name, (...args) => event.execute(...args)); } else { client.on(event.name, (...args) => event.execute(...args)); } }
 console.log("[System] Events Loaded.");
 
 client.login(botToken);
