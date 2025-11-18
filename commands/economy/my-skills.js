@@ -1,135 +1,124 @@
-const { EmbedBuilder, PermissionsBitField, SlashCommandBuilder } = require("discord.js");
-const SQLite = require("better-sqlite3");
-const sql = new SQLite('./mainDB.sqlite');
+const { EmbedBuilder, Colors, SlashCommandBuilder } = require("discord.js");
+const { getUserRace, getWeaponData, cleanDisplayName } = require('../../handlers/pvp-core.js');
+const skillsConfig = require('../../json/skills-config.json');
+
+const EMOJI_MORA = '<:mora:1435647151349698621>';
 
 module.exports = {
+    // --- بيانات السلاش ---
     data: new SlashCommandBuilder()
-        .setName('مورا')
-        .setDescription('يضيف، يزيل، أو يحدد رصيد المورا لمستخدم معين.')
-        .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('اضافة')
-                .setDescription('إضافة مورا إلى رصيد مستخدم')
-                .addUserOption(option => option.setName('المستخدم').setDescription('المستخدم الذي تريد إضافة الرصيد له').setRequired(true))
-                .addIntegerOption(option => option.setName('المبلغ').setDescription('المبلغ الذي تريد إضافته').setRequired(true).setMinValue(1)))
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('ازالة')
-                .setDescription('إزالة مورا من رصيد مستخدم')
-                .addUserOption(option => option.setName('المستخدم').setDescription('المستخدم الذي تريد إزالة الرصيد منه').setRequired(true))
-                .addIntegerOption(option => option.setName('المبلغ').setDescription('المبلغ الذي تريد إزالته').setRequired(true).setMinValue(1)))
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('تحديد')
-                .setDescription('تحديد رصيد المورا لمستخدم')
-                .addUserOption(option => option.setName('المستخدم').setDescription('المستخدم الذي تريد تحديد رصيده').setRequired(true))
-                .addIntegerOption(option => option.setName('المبلغ').setDescription('الرصيد الجديد').setRequired(true).setMinValue(0))),
+        .setName('مهاراتي')
+        .setDescription('عرض مهاراتك القتالية وتفاصيل سلاحك.')
+        .addUserOption(option => 
+            option.setName('المستخدم')
+            .setDescription('عرض مهارات عضو آخر (اختياري)')
+            .setRequired(false)),
 
-    name: 'mora-admin',
-    aliases: ['gm', 'set-mora'],
-    // --- ( ⬇️ تم التعديل هنا ⬇️ ) ---
-    category: "Admin",
-    // --- ( ⬆️ نهاية التعديل ⬆️ ) ---
-    description: "يضيف، يزيل، أو يحدد رصيد المورا لمستخدم معين.",
+    name: 'my-skills',
+    aliases: ['مهاراتي', 'skills', 'ms', 'قدراتي'],
+    category: "Economy",
+    description: 'عرض مهاراتك القتالية وتفاصيل سلاحك.',
 
-    async execute (interactionOrMessage, args) {
+    async execute(interactionOrMessage, args) {
 
+        // --- إعداد المتغيرات (نظام هجين) ---
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, member, guild, client;
-        let method, targetMember, amount;
+        let interaction, message, guild, client, user;
+        let targetMember;
 
         if (isSlash) {
             interaction = interactionOrMessage;
-            member = interaction.member;
             guild = interaction.guild;
             client = interaction.client;
-
-            method = interaction.options.getSubcommand();
-            targetMember = interaction.options.getMember('المستخدم');
-            amount = interaction.options.getInteger('المبلغ');
-
-            if (method === 'اضافة') method = 'add';
-            else if (method === 'ازالة') method = 'remove';
-            else if (method === 'تحديد') method = 'set';
-
+            user = interaction.user;
+            targetMember = interaction.options.getMember('المستخدم') || interaction.member;
             await interaction.deferReply();
         } else {
             message = interactionOrMessage;
-            member = message.member;
             guild = message.guild;
             client = message.client;
-
-            method = args[0] ? args[0].toLowerCase() : null; // add, remove, set
-            targetMember = message.mentions.members.first() || message.guild.members.cache.get(args[1]);
-            amount = parseInt(args[2]);
+            user = message.author;
+            targetMember = message.mentions.members.first() || message.guild.members.cache.get(args[0]) || message.member;
         }
 
         const reply = async (payload) => {
-            if (isSlash) {
-                return interaction.editReply(payload);
-            } else {
-                return message.reply(payload);
-            }
+            if (isSlash) return interaction.editReply(payload);
+            return message.reply(payload);
         };
 
-        const replyError = async (content) => {
-            const payload = { content, ephemeral: true };
-            if (isSlash) {
-                return interaction.editReply(payload);
-            } else {
-                return message.reply(payload);
-            }
-        };
+        const sql = client.sql;
+        const targetUser = targetMember.user;
+        const cleanName = cleanDisplayName(targetUser.displayName);
 
-        if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return replyError(`⛔️ يجب أن تكون لديك صلاحية **Administrator** لاستخدام هذا الأمر!`);
-        }
+        // 1. جلب بيانات العرق والسلاح
+        const userRace = getUserRace(targetMember, sql);
+        const weaponData = getWeaponData(sql, targetMember);
 
-        if (!targetMember || isNaN(amount) || amount < 0 || (method !== 'add' && method !== 'remove' && method !== 'set')) {
-            return replyError("الاستخدام الصحيح:\n" +
-                               "`-gmora add <@user> <مبلغ>`\n" +
-                               "`-gmora remove <@user> <مبلغ>`\n" +
-                               "`-gmora set <@user> <مبلغ>`");
-        }
-
-        const getScore = client.getLevel;
-        const setScore = client.setLevel;
-
-        let data = getScore.get(targetMember.id, guild.id);
-
-        if (!data) {
-             data = { ...client.defaultData, user: targetMember.id, guild: guild.id };
-        }
-
-        data.mora = data.mora || 0;
-
-        let finalAmount;
-        let action;
-
-        if (method === 'add') {
-            data.mora += amount;
-            finalAmount = data.mora;
-            action = `تمت إضافة **${amount.toLocaleString()}** مورا.`;
-        } else if (method === 'remove') {
-            data.mora = Math.max(0, data.mora - amount); 
-            finalAmount = data.mora;
-            action = `تمت إزالة **${amount.toLocaleString()}** مورا.`;
-        } else if (method === 'set') {
-            data.mora = amount;
-            finalAmount = data.mora;
-            action = `تم تحديد الرصيد إلى **${amount.toLocaleString()}** مورا.`;
-        }
-
-        setScore.run(data);
+        // 2. جلب المهارات المشتراة من قاعدة البيانات
+        const userSkillsDB = sql.prepare("SELECT * FROM user_skills WHERE userID = ? AND guildID = ? AND skillLevel > 0").all(targetUser.id, guild.id);
 
         const embed = new EmbedBuilder()
-            .setColor("DarkBlue")
-            .setTitle(`💰 تحديث رصيد المورا لـ ${targetMember.displayName}`)
-            .setDescription(`${action}`)
-            .addFields({ name: 'الرصيد الجديد', value: `${finalAmount.toLocaleString()} <:mora:1435647151349698621>`, inline: true })
-            .setFooter({ text: `تم التنفيذ بواسطة ${member.user.username}` })
-            .setTimestamp();
+            .setTitle(`⚔️ السجل القتالي لـ ${cleanName}`)
+            .setColor(Colors.Gold)
+            .setThumbnail(targetUser.displayAvatarURL());
+
+        // --- قسم السلاح ---
+        let weaponField = "لا يوجد سلاح مجهز.";
+        if (userRace && weaponData) {
+            weaponField = 
+                `**السلاح:** ${weaponData.emoji} **${weaponData.name}**\n` +
+                `**المستوى:** \`Lv.${weaponData.currentLevel}\`\n` +
+                `**الضرر:** \`${weaponData.currentDamage}\` DMG`;
+        } else if (userRace && !weaponData) {
+            weaponField = `العرق: **${userRace.raceName}** (بدون سلاح)`;
+        } else {
+            weaponField = "لم يتم اختيار عرق بعد.";
+        }
+
+        embed.addFields({ name: "🗡️ العتاد الحالي", value: weaponField, inline: false });
+
+        // --- قسم المهارات ---
+        let skillsList = [];
+
+        // أ) مهارة العرق (تضاف تلقائياً إذا كان لديه عرق)
+        if (userRace) {
+            // تحويل اسم العرق لصيغة الآيدي (مثال: Dark Elf -> race_dark_elf_skill)
+            const raceSkillId = `race_${userRace.raceName.toLowerCase().replace(/ /g, '_')}_skill`;
+            const raceSkillConfig = skillsConfig.find(s => s.id === raceSkillId);
+            
+            if (raceSkillConfig) {
+                skillsList.push(`**${raceSkillConfig.emoji} ${raceSkillConfig.name}** (مهارة العرق)\n> ${raceSkillConfig.description}`);
+            }
+        }
+
+        // ب) المهارات المشتراة
+        if (userSkillsDB.length > 0) {
+            for (const dbSkill of userSkillsDB) {
+                const skillConfig = skillsConfig.find(s => s.id === dbSkill.skillID);
+                if (skillConfig) {
+                    let effectDesc = "";
+                    // حساب قوة المهارة الحالية
+                    const currentValue = skillConfig.base_value + (skillConfig.value_increment * (dbSkill.skillLevel - 1));
+                    
+                    if (skillConfig.id === 'skill_healing') effectDesc = `شفاء: ${currentValue}%`;
+                    else if (skillConfig.id === 'skill_shielding') effectDesc = `درع: ${currentValue}%`;
+                    else if (skillConfig.id === 'skill_buffing') effectDesc = `تضخيم ضرر: ${currentValue}%`;
+                    else if (skillConfig.id === 'skill_poison') effectDesc = `ضرر سم: ${currentValue}`;
+                    else effectDesc = `Lv.${dbSkill.skillLevel}`;
+
+                    skillsList.push(`**${skillConfig.emoji} ${skillConfig.name}** \`(Lv.${dbSkill.skillLevel})\`\n> التأثير: ${effectDesc}`);
+                }
+            }
+        }
+
+        if (skillsList.length > 0) {
+            embed.addFields({ name: "🌟 المهارات والقدرات", value: skillsList.join('\n\n'), inline: false });
+        } else {
+            embed.addFields({ name: "🌟 المهارات والقدرات", value: "لا توجد مهارات مكتسبة حالياً.", inline: false });
+        }
+
+        // إضافة تذييل
+        embed.setFooter({ text: "يمكنك تطوير مهاراتك وشراء المزيد من المتجر." });
 
         await reply({ embeds: [embed] });
     }
