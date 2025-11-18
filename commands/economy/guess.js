@@ -3,7 +3,7 @@ const { calculateMoraBuff } = require('../../streak-handler.js');
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
 const MIN_BET = 25;
-const MAX_BET_SOLO = 50000; // الحد الأقصى للعب الفردي (ضد البوت فقط)
+const MAX_BET_SOLO = 100; // 🔒 الحد الأقصى ضد البوت فقط
 const SOLO_ATTEMPTS = 7;
 const COOLDOWN_MS = 1 * 60 * 60 * 1000;
 
@@ -35,7 +35,9 @@ module.exports = {
             option.setName('الرهان')
                 .setDescription(`المبلغ الذي تريد المراهنة به`)
                 .setRequired(true)
-                .setMinValue(MIN_BET))
+                .setMinValue(MIN_BET)
+                // ⚠️ تمت إزالة الحد الأقصى من هنا للسماح بالمبالغ الكبيرة في اللعب الجماعي
+        )
         .addUserOption(option => option.setName('الخصم1').setDescription('الخصم الأول (لعبة جماعية)').setRequired(false))
         .addUserOption(option => option.setName('الخصم2').setDescription('الخصم الثاني (لعبة جماعية)').setRequired(false))
         .addUserOption(option => option.setName('الخصم3').setDescription('الخصم الثالث (لعبة جماعية)').setRequired(false))
@@ -114,13 +116,16 @@ module.exports = {
             if (isNaN(bet)) {
                 return replyError(`الاستخدام: \`/تخمين الرهان: <المبلغ> [الخصوم...]\``);
             }
+            
+            // 1. التحقق من الحد الأدنى (للجميع)
             if (bet < MIN_BET) {
                 return replyError(`الحد الأدنى للرهان هو **${MIN_BET}** ${EMOJI_MORA} !`);
             }
 
-            // ( 🌟🌟🌟 التعديل هنا: تطبيق الحد الأقصى فقط على اللعب الفردي 🌟🌟🌟 )
+            // 2. 🔒 التحقق من الحد الأقصى (للبوت فقط)
+            // إذا لم يكن هناك خصوم (Opponents size 0) والرهان أكبر من 100 -> نرفض
             if (opponents.size === 0 && bet > MAX_BET_SOLO) {
-                return replyError(`الحد الأقصى للرهان ضد البوت هو **${MAX_BET_SOLO}** ${EMOJI_MORA} !`);
+                return replyError(`🚫 **تنبيه:** الحد الأقصى للرهان في اللعب الفردي (ضد البوت) هو **${MAX_BET_SOLO}** ${EMOJI_MORA}!\n(للعب بمبالغ أكبر، تحدى لاعبين آخرين).`);
             }
 
             const getScore = client.getLevel;
@@ -144,7 +149,7 @@ module.exports = {
             }
 
             activeGames.add(channelId);
-            authorData.lastGuess = now; // يسجل الوقت فوراً لتجنب السبام
+            authorData.lastGuess = now;
 
             if (opponents.size === 0) {
                 await playSolo(channel, author, bet, authorData, getScore, setScore, sql, reply);
@@ -174,6 +179,7 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
     const targetNumber = Math.floor(Math.random() * 100) + 1;
     let attempts = 0;
 
+    // الجائزة في الفردي 7 أضعاف، لكن مع عقوبة مع كل محاولة خاطئة
     const startingPrize = bet * 7;
     let currentWinnings = startingPrize;
     const penaltyPerGuess = Math.floor(startingPrize / SOLO_ATTEMPTS);
@@ -239,7 +245,7 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
             authorData.mora -= bet;
             setScore.run(authorData);
             const loseEmbed = new EmbedBuilder()
-                .setTitle('💔 لقد خسرت...')
+                .setTitle(reason === 'time' ? '⏰ انتهى الوقت! لقد خسرت...' : '💔 لقد خسرت...')
                 .setDescription(`انتهت المحاولات أو الوقت.\nكـان الـرقـم **${targetNumber}**.\nخسرت **${bet}** ${EMOJI_MORA}.`)
                 .setColor("Red")
                 .setImage('https://i.postimg.cc/SNsNdpgq/download.jpg');
@@ -251,9 +257,9 @@ async function playSolo(channel, author, bet, authorData, getScore, setScore, sq
 async function playChallenge(channel, author, opponents, bet, authorData, getScore, setScore, sql, replyFunction) {
     const channelId = channel.id;
 
-    // التحقق من صلاحية الخصوم
-    const requiredOpponents = opponents.map(o => o.id); // Array of IDs
     const opponentNames = opponents.map(o => o.displayName).join(', ');
+    // تخزين ID الخصوم للتحقق
+    const requiredOpponentsIDs = opponents.map(o => o.id);
 
     for (const opponent of opponents.values()) {
         if (opponent.id === author.id) {
@@ -267,7 +273,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
         let opponentData = getScore.get(opponent.id, channel.guild.id);
         if (!opponentData || opponentData.mora < bet) {
             activeGames.delete(channelId);
-            return replyFunction({ content: `اللاعب ${opponent.displayName} لا يملك مورا كافية!`, ephemeral: true });
+            return replyFunction({ content: `اللاعب ${opponent.displayName} لا يملك مورا كافية لهذا الرهان!`, ephemeral: true });
         }
     }
 
@@ -299,19 +305,21 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
         fetchReply: true 
     });
 
-    const acceptedOpponents = new Set(); // سنخزن الـ IDs هنا
+    const acceptedOpponentsIDs = new Set(); 
     const challengeCollector = challengeMsg.createMessageComponentCollector({ time: 60000 });
 
     // --- دالة بدء اللعبة ---
     const startGame = async () => {
         challengeCollector.stop('started');
         
-        // قائمة اللاعبين النهائيين (المضيف + من قبلوا)
-        // نستخدم الـ Map للحصول على كائنات الأعضاء
+        // تجميع كل اللاعبين (المضيف + الخصوم)
+        // نحتاجهم كـ Members لجلب البيانات، وكـ IDs للفلترة
         const finalPlayers = [author];
-        opponents.forEach(o => finalPlayers.push(o)); 
+        opponents.forEach(o => finalPlayers.push(o));
         
-        // خصم المورا
+        const finalPlayerIDs = finalPlayers.map(p => p.id);
+
+        // خصم المورا من الجميع
         for (const player of finalPlayers) {
             let data = getScore.get(player.id, channel.guild.id);
             if (!data) data = { ...channel.client.defaultData, user: player.id, guild: channel.guild.id };
@@ -330,8 +338,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
 
         await challengeMsg.edit({ content: finalPlayers.map(p => p.toString()).join(' '), embeds: [gameEmbed], components: [] });
 
-        // فلتر: أي شخص من اللاعبين يكتب رقم
-        const finalPlayerIDs = finalPlayers.map(p => p.id);
+        // الفلتر: يسمح فقط للاعبين المشاركين، ويجب أن تكون الرسالة رقماً
         const filter = (m) => finalPlayerIDs.includes(m.author.id) && !isNaN(parseInt(m.content));
         const gameCollector = channel.createMessageCollector({ filter, time: 60000 });
 
@@ -343,7 +350,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
                 let winnerData = getScore.get(msg.author.id, channel.guild.id);
                 const moraMultiplier = calculateMoraBuff(msg.member, sql);
                 
-                // الفائز يأخذ كل المبلغ + بوناس الستريك الخاص به (على حصته فقط)
+                // حساب الفوز (المبلغ الكلي + بوناس على حصة اللاعب فقط)
                 const bonus = Math.floor(bet * moraMultiplier) - bet; 
                 const finalWinnings = totalPot + bonus;
 
@@ -380,7 +387,7 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
 
                 channel.send({ embeds: [loseEmbed] });
 
-                // إرجاع الأموال
+                // إرجاع الأموال للجميع
                 for (const player of finalPlayers) {
                     let data = getScore.get(player.id, channel.guild.id);
                     data.mora += bet;
@@ -391,8 +398,9 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
     };
 
     challengeCollector.on('collect', async i => {
-        if (!requiredOpponents.includes(i.user.id)) {
-            return i.reply({ content: `التحدي ليس لك!`, ephemeral: true });
+        // التأكد أن الشخص الذي ضغط الزر هو أحد الخصوم المدعوين
+        if (!requiredOpponentsIDs.includes(i.user.id)) {
+            return i.reply({ content: `التحدي ليس مرسلاً لك!`, ephemeral: true });
         }
 
         if (i.customId === 'guess_pvp_decline') {
@@ -405,12 +413,12 @@ async function playChallenge(channel, author, opponents, bet, authorData, getSco
         }
 
         if (i.customId === 'guess_pvp_accept') {
-            if (!acceptedOpponents.has(i.user.id)) {
-                acceptedOpponents.add(i.user.id);
+            if (!acceptedOpponentsIDs.has(i.user.id)) {
+                acceptedOpponentsIDs.add(i.user.id);
                 await i.reply({ content: `✦ تـم قبول التحدي!`, ephemeral: true });
                 
-                // ( 🌟🌟🌟 الشرط الصحيح لبدء اللعبة 🌟🌟🌟 )
-                if (acceptedOpponents.size === requiredOpponents.length) {
+                // 🌟🌟🌟 التحقق: هل عدد الذين قبلوا = عدد الخصوم المطلوبين؟ 🌟🌟🌟
+                if (acceptedOpponentsIDs.size === requiredOpponentsIDs.length) {
                     await startGame();
                 }
             } else {
