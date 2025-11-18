@@ -20,7 +20,7 @@ module.exports = {
                 .setRequired(true)),
 
     name: 'add-shortcut',
-    aliases: ['اختصار'],
+    aliases: ['اختصار', 'شورتكت'],
     category: "Leveling",
     description: 'يضيف اختصاراً لتشغيل أمر في قناة معينة.',
 
@@ -28,6 +28,7 @@ module.exports = {
         let interaction, message, member, guild, client, sql;
         let channel, inputWordsString, commandName;
 
+        // تحديد هل هو سلاش كوماند أم رسالة
         const isSlash = !!interactionOrMessage.isChatInputCommand;
 
         if (isSlash) {
@@ -48,11 +49,23 @@ module.exports = {
             sql = client.sql;
 
             channel = message.mentions.channels.first();
-            // نتوقع آخر شيء هو اسم الأمر، وقبله الكلمات
-            if (!args || args.length < 2) return message.reply("الاستخدام الخاطئ.");
+            
+            // مثال الاستخدام: -اختصار #شات كلمة1 كلمة2 daily
+            if (!channel || !args || args.length < 3) {
+                 const replyContent = "❌ | الاستخدام الخاطئ.\nمثال: `-اختصار #الروم كلمة1 كلمة2 daily`";
+                 return message.reply(replyContent);
+            }
+
+            // اسم الأمر هو آخر كلمة في الرسالة
             commandName = args[args.length - 1]?.toLowerCase();
-            // نجمع الكلمات في الوسط
-            inputWordsString = args.slice(1, -1).join(' '); 
+            
+            // الكلمات هي كل شيء بين المنشن واسم الأمر
+            // نتخطى أول عنصر (المنشن) وآخر عنصر (اسم الأمر)
+            const wordsStart = args.findIndex(arg => arg.includes(channel.id));
+            if (wordsStart === -1) return message.reply("❌ | يجب تحديد الروم.");
+            
+            // نأخذ الكلمات من بعد الروم وحتى قبل اسم الأمر
+            inputWordsString = args.slice(wordsStart + 1, -1).join(' '); 
         }
 
         const reply = async (content, ephemeral = false) => {
@@ -68,16 +81,17 @@ module.exports = {
             return reply('❌ | البيانات ناقصة.');
         }
 
-        // تحويل النص إلى مصفوفة كلمات (فصل بالمسافة)
+        // تحويل النص إلى مصفوفة كلمات
         const shortcutWords = inputWordsString.split(/\s+/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
 
-        // التحقق من وجود الأمر
+        // التحقق من وجود الأمر في البوت
         const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
         if (!command) {
-            return reply(`❌ | لم يتم العثور على أمر باسم \`${commandName}\`.`, true);
+            return reply(`❌ | لم يتم العثور على أمر باسم \`${commandName}\`. تأكد من صحة اسم الأمر.`, true);
         }
 
         try {
+            // إنشاء الجدول إذا لم يكن موجوداً
             sql.prepare(`
                 CREATE TABLE IF NOT EXISTS command_shortcuts (
                     guildID TEXT, 
@@ -103,7 +117,7 @@ module.exports = {
 
             transaction(shortcutWords);
 
-            return reply(`✅ | تم إضافة **${shortcutWords.length}** اختصار في ${channel}.\nالكلمات: \`${shortcutWords.join('`, `')}\`\nتشغل الأمر: \`${command.name}\``);
+            return reply(`✅ | تم إضافة **${shortcutWords.length}** اختصار في ${channel}.\nالكلمات: \`${shortcutWords.join('`, `')}\`\nسوف تقوم بتشغيل الأمر: \`${command.name}\``);
 
         } catch (err) {
             console.error(err);
