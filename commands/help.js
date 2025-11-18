@@ -79,30 +79,30 @@ function buildCasinoEmbed(client) {
     const desc = `
 **❖ اوامـر الكـازينـو**
 
-✶** ${getCmdName(commands, 'balance')}: ** \`يعرض رصيدك الكاش ورصيد البنك\`
-✶** ${getCmdName(commands, 'bank')}: ** \`تقريرك الائتماني والفوائد اليومية\`
-✶** ${getCmdName(commands, 'deposit')}: ** \`لـ ايداع رصيدك في البنك\`
-✶** ${getCmdName(commands, 'withdraw')}: ** \`لسحب رصيدك من البنك\`
-✶** ${getCmdName(commands, 'daily')}: ** \`لـ استلام راتبك اليومي\`
-✶** ${getCmdName(commands, 'loan')}: ** \`للحصول على قرض من البنك\`
-✶** ${getCmdName(commands, 'payloan')}: ** \`لدفع قسط من قرضك\`
-✶** ${getCmdName(commands, 'market')}: ** \`عرض سوق الاسهم والاستثمارات\`
-✶** ${getCmdName(commands, 'portfolio')}: ** \`استعراض استثماراتك و اصولك\`
-✶** ${getCmdName(commands, 'transfer')}: ** \`لتحويل رصيد المورا لمستخدم آخر\`
-✶** ${getCmdName(commands, 'farm')}: ** \`عرض سوق المزرعة لشراء الحيوانات\`
-✶** ${getCmdName(commands, 'myfarm')}: ** \`عرض مزرعتك الخاصة والحيوانات لديك\`
-✶** ${getCmdName(commands, 'work')}: ** \`للعمل وكسب المورا مرة كل ساعة\`
-✶** ${getCmdName(commands, 'rps')}: ** \`لعب حجرة ورقة مقص\`
-✶** ${getCmdName(commands, 'roulette')}: ** \`للعب الروليت الروسية ومضاعفة رهانك\`
-✶** ${getCmdName(commands, 'rob')}: ** \`لسرقة ونهب رصيد مستخدم آخر\`
-✶** ${getCmdName(commands, 'guess')}: ** \`لعبة تخمين الرقم فردي او جماعي\`
-✶** ${getCmdName(commands, 'gametime')}: ** \`لاظهار فترة التهدئة لأوامر الكازينو\`
+✶** ${getCmdName(commands, 'رصيد')}: ** \`يعرض رصيدك الكاش ورصيد البنك\`
+✶** ${getCmdName(commands, 'بنك')}: ** \`تقريرك الائتماني والفوائد اليومية\`
+✶** ${getCmdName(commands, 'ايداع')}: ** \`لـ ايداع رصيدك في البنك\`
+✶** ${getCmdName(commands, 'سحب')}: ** \`لسحب رصيدك من البنك\`
+✶** ${getCmdName(commands, 'راتب')}: ** \`لـ استلام راتبك اليومي\`
+✶** ${getCmdName(commands, 'قرض')}: ** \`للحصول على قرض من البنك\`
+✶** ${getCmdName(commands, 'سداد')}: ** \`لدفع قسط من قرضك\`
+✶** ${getCmdName(commands, 'سوق')}: ** \`عرض سوق الاسهم والاستثمارات\`
+✶** ${getCmdName(commands, 'ممتلكات')}: ** \`استعراض استثماراتك و اصولك\`
+✶** ${getCmdName(commands, 'تحويل')}: ** \`لتحويل رصيد المورا لمستخدم آخر\`
+✶** ${getCmdName(commands, 'مزرعة')}: ** \`عرض سوق المزرعة لشراء الحيوانات\`
+✶** ${getCmdName(commands, 'مزرعتي')}: ** \`عرض مزرعتك الخاصة والحيوانات لديك\`
+✶** ${getCmdName(commands, 'عمل')}: ** \`للعمل وكسب المورا مرة كل ساعة\`
+✶** ${getCmdName(commands, 'حجرة')}: ** \`لعب حجرة ورقة مقص\`
+✶** ${getCmdName(commands, 'روليت')}: ** \`للعب الروليت الروسية ومضاعفة رهانك\`
+✶** ${getCmdName(commands, 'سرقة')}: ** \`لسرقة ونهب رصيد مستخدم آخر\`
+✶** ${getCmdName(commands, 'خمن')}: ** \`لعبة تخمين الرقم فردي او جماعي\`
+✶** ${getCmdName(commands, 'وقت')}: ** \`لاظهار فترة التهدئة لأوامر الكازينو\`
 
 **❖ اوامـر الـقـتـال**
-✶** ${getCmdName(commands, 'pvp')}: ** \`قتال وتحدي شخص آخر والمراهنة\`
-✶** ${getCmdName(commands, 'my-skills')}: ** \`لعرض عتادك القتالي ومهاراتك\`
-✶** ${getCmdName(commands, 'weapon-info')}: ** \`لعرض تفاصيل سلاح العرق الخاص بك\`
-✶** ${getCmdName(commands, 'shop')}: ** \`يوجهك لمتجر السيرفر لاستبدال المورا بالعناصر\`
+✶** ${getCmdName(commands, 'تحدي')}: ** \`قتال وتحدي شخص آخر والمراهنة\`
+✶** ${getCmdName(commands, 'عتاد')}: ** \`لعرض عتادك القتالي ومهاراتك\`
+✶** ${getCmdName(commands, 'سلاح')}: ** \`لعرض تفاصيل سلاح العرق الخاص بك\`
+✶** ${getCmdName(commands, 'متجر')}: ** \`يوجهك لمتجر السيرفر لاستبدال المورا بالعناصر\`
     `;
 
     return new EmbedBuilder()
