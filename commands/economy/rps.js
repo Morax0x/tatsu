@@ -1,10 +1,12 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, SlashCommandBuilder } = require("discord.js");
 const { calculateMoraBuff } = require('../../streak-handler.js');
-const MAX_BET = 100;
+
+// (الحد الأقصى للرهان ضد البوت فقط)
+const MAX_BET_BOT = 100; 
 const COOLDOWN_MS = 1 * 60 * 60 * 1000;
 
 const CHOICES = {
-    rock: { name: 'حجرة', emoji: '🪨' },
+    rock: { name: 'حجرة', emoji: '🗿' },
     paper: { name: 'ورقة', emoji: '📄' },
     scissors: { name: 'مقص', emoji: '✂️' }
 };
@@ -45,7 +47,7 @@ module.exports = {
     name: 'rps',
     aliases: ['حجرة', 'rps'],
     category: "Economy",
-    description: `تلعب حجرة ورقة مقص ضد البوت أو لاعب آخر (الحد الأقصى ${MAX_BET} ضد البوت).`,
+    description: `تلعب حجرة ورقة مقص ضد البوت أو لاعب آخر.`,
 
     async execute(interactionOrMessage, args) {
 
@@ -95,8 +97,9 @@ module.exports = {
             return replyError(`الاستخدام: \`/حجرة <مبلغ الرهان> [@لاعب]\``);
         }
 
-        if (!opponent && bet > MAX_BET) {
-            return replyError(`لا يمكنك المراهنة بأكثر من **${MAX_BET}** <:mora:1435647151349698621> ضد البوت!`);
+        // ( 🌟 تعديل: التحقق من الحد الأقصى فقط إذا كان الخصم هو البوت 🌟 )
+        if (!opponent && bet > MAX_BET_BOT) {
+            return replyError(`لا يمكنك المراهنة بأكثر من **${MAX_BET_BOT}** <:mora:1435647151349698621> ضد البوت!`);
         }
 
         const getScore = client.getLevel;
