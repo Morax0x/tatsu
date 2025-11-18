@@ -3,7 +3,7 @@ const { PermissionsBitField, ChannelType, SlashCommandBuilder } = require('disco
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('اختصار')
-        .setDescription('يضيف اختصاراً (كلمة بدون بريفكس) لتشغيل أمر في قناة معينة.')
+        .setDescription('يضيف اختصارات (بدون بريفكس) لتشغيل أمر في قناة معينة.')
         .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild)
         .addChannelOption(option => 
             option.setName('القناة')
@@ -11,23 +11,22 @@ module.exports = {
                 .setRequired(true)
                 .addChannelTypes(ChannelType.GuildText))
         .addStringOption(option =>
-            option.setName('الكلمة')
-                .setDescription('الكلمة التي ستكتبها لتشغيل الأمر (بدون بريفكس)')
+            option.setName('الكلمات')
+                .setDescription('اكتب الكلمات وافصل بينها بمسافة (مثال: راتب يومي فلوس)')
                 .setRequired(true))
         .addStringOption(option =>
             option.setName('الأمر')
-                .setDescription('اسم الأمر (البرمجي) الذي سيتم تشغيله')
+                .setDescription('اسم الأمر البرمجي (مثال: daily)')
                 .setRequired(true)),
 
     name: 'add-shortcut',
     aliases: ['اختصار'],
     category: "Leveling",
-    description: 'يضيف اختصاراً (كلمة) لتشغيل أمر في قناة معينة.',
+    description: 'يضيف اختصاراً لتشغيل أمر في قناة معينة.',
 
     async execute(interactionOrMessage, args) {
-
         let interaction, message, member, guild, client, sql;
-        let channel, shortcutWords, commandName;
+        let channel, inputWordsString, commandName;
 
         const isSlash = !!interactionOrMessage.isChatInputCommand;
 
@@ -39,18 +38,8 @@ module.exports = {
             sql = client.sql;
 
             channel = interaction.options.getChannel('القناة');
-            
-            // 🌟 التحقق من القيم قبل استخدامها 🌟
-            const rawWord = interaction.options.getString('الكلمة');
-            const rawCommand = interaction.options.getString('الأمر');
-
-            if (!rawWord || !rawCommand) {
-                return interaction.reply({ content: "❌ يرجى تعبئة جميع الحقول.", ephemeral: true });
-            }
-
-            shortcutWords = [rawWord.toLowerCase()]; 
-            commandName = rawCommand.toLowerCase();
-
+            inputWordsString = interaction.options.getString('الكلمات');
+            commandName = interaction.options.getString('الأمر').toLowerCase();
         } else {
             message = interactionOrMessage;
             member = message.member;
@@ -59,38 +48,30 @@ module.exports = {
             sql = client.sql;
 
             channel = message.mentions.channels.first();
-            // التحقق من وجود الـ Args
-            if (!args || args.length < 3) {
-                 commandName = null;
-            } else {
-                 commandName = args[args.length - 1]?.toLowerCase();
-                 shortcutWords = args.slice(1, -1).map(w => w.toLowerCase());
-            }
+            // نتوقع آخر شيء هو اسم الأمر، وقبله الكلمات
+            if (!args || args.length < 2) return message.reply("الاستخدام الخاطئ.");
+            commandName = args[args.length - 1]?.toLowerCase();
+            // نجمع الكلمات في الوسط
+            inputWordsString = args.slice(1, -1).join(' '); 
         }
 
         const reply = async (content, ephemeral = false) => {
-            if (isSlash) {
-                return interaction.reply({ content, ephemeral });
-            } else {
-                return message.reply(content);
-            }
+            if (isSlash) return interaction.reply({ content, ephemeral });
+            return message.reply(content);
         };
 
         if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
             return reply('❌ | أنت بحاجة إلى صلاحية `ManageGuild`.', true);
         }
 
-        if (!channel || !shortcutWords || shortcutWords.length === 0 || !commandName) {
-            return reply(
-                '**الاستخدام:** `-اختصار <#channel> <الكلمة> <اسم_الأمر>`\n' +
-                'مثال: `-اختصار #general راتب daily`'
-            );
+        if (!channel || !inputWordsString || !commandName) {
+            return reply('❌ | البيانات ناقصة.');
         }
 
-        if (channel.type !== ChannelType.GuildText) {
-             return reply('❌ | يرجى اختيار قناة كتابية.', true);
-        }
+        // تحويل النص إلى مصفوفة كلمات (فصل بالمسافة)
+        const shortcutWords = inputWordsString.split(/\s+/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
 
+        // التحقق من وجود الأمر
         const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
         if (!command) {
             return reply(`❌ | لم يتم العثور على أمر باسم \`${commandName}\`.`, true);
@@ -114,19 +95,19 @@ module.exports = {
                 commandName = excluded.commandName
             `);
 
-            const transaction = sql.transaction((shortcuts) => {
-                for (const word of shortcuts) {
+            const transaction = sql.transaction((words) => {
+                for (const word of words) {
                     insert.run(guild.id, channel.id, word, command.name);
                 }
             });
 
             transaction(shortcutWords);
 
-            return reply(`✅ | تم! الآن عند كتابة **"${shortcutWords.join('", "')}"** في ${channel} سيعمل الأمر \`${command.name}\` تلقائياً.`);
+            return reply(`✅ | تم إضافة **${shortcutWords.length}** اختصار في ${channel}.\nالكلمات: \`${shortcutWords.join('`, `')}\`\nتشغل الأمر: \`${command.name}\``);
 
         } catch (err) {
             console.error(err);
-            return reply('❌ | حدث خطأ أثناء تحديث قاعدة البيانات.', true);
+            return reply('❌ | حدث خطأ في قاعدة البيانات.', true);
         }
     }
 };
