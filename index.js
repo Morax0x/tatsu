@@ -16,18 +16,16 @@ try {
     process.exit(1);
 }
 
-// 2. استيراد المعالجات (Handlers) - ✅ تم تصحيح المسارات لتكون ./
+// 2. استيراد المعالجات
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
 const questsConfig = require('./json/quests-config.json');
-
-// استيراد المولدات والمعالجات الأخرى
 const { generateSingleAchievementAlert, generateQuestAlert } = require('./generators/achievement-generator.js'); 
 const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./handlers/giveaway-handler.js');
 const { checkUnjailTask } = require('./handlers/report-handler.js'); 
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 
-// 3. إعداد العميل (Client)
+// 3. إعداد العميل
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -39,18 +37,16 @@ const client = new Client({
     ]
 });
 
-// 4. المجموعات والمتغيرات العامة
+// 4. المتغيرات العامة
 client.commands = new Collection();
 client.cooldowns = new Collection();
 client.talkedRecently = new Map();
 const voiceXPCooldowns = new Map();
-
 client.recentMessageTimestamps = new Collection(); 
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
-
 const botToken = process.env.DISCORD_BOT_TOKEN;
 
-// ربط المتغيرات والمولدات بالعميل
+// ربط المتغيرات والمولدات
 client.EMOJI_MORA = '<:mora:1435647151349698621>';
 client.EMOJI_STAR = '⭐';
 client.EMOJI_WI = '<a:wi:1435572304988868769>';
@@ -63,10 +59,9 @@ client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
 client.sql = sql;
 
-// تشغيل نظام الباك أب
 require('./handlers/backup-scheduler.js')(client, sql);
 
-// --- دوال مساعدة وقوالب البيانات ---
+// --- القوالب الافتراضية ---
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
 
@@ -91,7 +86,6 @@ function getWeekStartDateString() {
 // 🌟🌟 دوال النظام الأساسية 🌟🌟
 // ==================================================================
 
-// 1. فحص وإعطاء رتب اللفل
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
     try {
         const guild = member.guild;
@@ -99,11 +93,9 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
         if (allLevelRoles.length === 0) return; 
         const botMember = guild.members.me;
         if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) return;
-
         let roleToAdd = null; 
         const rolesToRemove = []; 
         let highestRoleFound = false; 
-
         for (const row of allLevelRoles) {
             const role = guild.roles.cache.get(row.roleID);
             if (!role) continue;
@@ -123,16 +115,11 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
     } catch (err) { console.error("[Level Roles] Error:", err.message); }
 }
 
-// 2. إرسال رسالة اللفل أب
 client.sendLevelUpMessage = async function(messageOrInteraction, member, newLevel, oldLevel, xpData) {
     try {
         await client.checkAndAwardLevelRoles(member, newLevel);
         const guild = messageOrInteraction.guild;
-        
-        // تحديد القناة المناسبة (إما القناة المخصصة أو القناة الحالية)
         let channelToSend = messageOrInteraction.channel;
-        
-        // محاولة جلب قناة اللفل المخصصة
         try {
             let channelData = sql.prepare("SELECT channel FROM channel WHERE guild = ?").get(guild.id);
             if (channelData && channelData.channel && channelData.channel !== 'Default') {
@@ -140,29 +127,19 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
                 if (fetchedChannel) channelToSend = fetchedChannel;
             }
         } catch(e) {}
-
         let customSettings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id);
         let levelUpContent = null;
         let embed;
-
         if (customSettings && customSettings.lvlUpTitle) {
             function antonymsLevelUp(string) {
                 return string.replace(/{member}/gi, `${member}`).replace(/{level}/gi, `${newLevel}`).replace(/{level_old}/gi, `${oldLevel}`).replace(/{xp}/gi, `${xpData.xp}`).replace(/{totalXP}/gi, `${xpData.totalXP}`);
             }
-            embed = new EmbedBuilder()
-                .setTitle(antonymsLevelUp(customSettings.lvlUpTitle))
-                .setDescription(antonymsLevelUp(customSettings.lvlUpDesc.replace(/\\n/g, '\n')))
-                .setColor(customSettings.lvlUpColor || "Random")
-                .setTimestamp();
+            embed = new EmbedBuilder().setTitle(antonymsLevelUp(customSettings.lvlUpTitle)).setDescription(antonymsLevelUp(customSettings.lvlUpDesc.replace(/\\n/g, '\n'))).setColor(customSettings.lvlUpColor || "Random").setTimestamp();
             if (customSettings.lvlUpImage) { embed.setImage(antonymsLevelUp(customSettings.lvlUpImage)); }
             if (customSettings.lvlUpMention == 1) { levelUpContent = `${member}`; }
         } else {
-            embed = new EmbedBuilder()
-                .setAuthor({ name: member.user.tag, iconURL: member.user.displayAvatarURL({ dynamic: true }) })
-                .setColor("Random")
-                .setDescription(`**Congratulations** ${member}! You have now leveled up to **level ${newLevel}**`);
+            embed = new EmbedBuilder().setAuthor({ name: member.user.tag, iconURL: member.user.displayAvatarURL({ dynamic: true }) }).setColor("Random").setDescription(`**Congratulations** ${member}! You have now leveled up to **level ${newLevel}**`);
         }
-
         if (!channelToSend) return;
         const perms = channelToSend.permissionsFor(guild.members.me);
         if (perms.has(PermissionsBitField.Flags.SendMessages) && perms.has(PermissionsBitField.Flags.ViewChannel)) {
@@ -176,28 +153,22 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
     try {
         const id = `${member.id}-${guild.id}`;
         let notifSettings = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?").get(id);
-
         if (!notifSettings) {
             notifSettings = { id: id, userID: member.id, guildID: guild.id, dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1, levelNotif: 1 };
             client.setQuestNotif.run(notifSettings);
         }
-
         let sendMention = false;
         if (questType === 'daily' && notifSettings.dailyNotif === 1) sendMention = true;
         if (questType === 'weekly' && notifSettings.weeklyNotif === 1) sendMention = true;
         if (questType === 'achievement' && notifSettings.achievementsNotif === 1) sendMention = true;
-
-        const userIdentifier = sendMention ? `${member}` : `**${member.displayName}**`;
         
-        // 🔍 جلب قناة المهام
         const settings = sql.prepare("SELECT questChannelID FROM settings WHERE guild = ?").get(guild.id);
         if (!settings || !settings.questChannelID) return; 
-
         const channel = guild.channels.cache.get(settings.questChannelID);
         if (!channel) return;
+        
         const perms = channel.permissionsFor(guild.members.me);
         if (!perms || !perms.has(PermissionsBitField.Flags.SendMessages)) return;
-
         const canAttachFiles = perms.has(PermissionsBitField.Flags.AttachFiles);
         const questName = quest.name;
         const reward = quest.reward; 
@@ -221,7 +192,9 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
                 attachmentError = true; 
             }
         }
-
+        
+        const userIdentifier = sendMention ? `${member}` : `**${member.displayName}**`;
+        
         if (questType === 'achievement') {
             message = [
                 `╭⭒★︰ ${client.EMOJI_WI} ${userIdentifier} ${client.EMOJI_WII}`,
@@ -248,7 +221,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
     } catch (err) { console.error("Error sending quest announcement:", err.message); }
 }
 
-// 4. التحقق من إنجاز المهام (يومية/أسبوعية)
+// 4. التحقق من المهام
 client.checkQuests = async function(client, member, stats, questType, dateKey) {
     const questsToCheck = questsConfig[questType] || [];
     for (const quest of questsToCheck) {
@@ -263,14 +236,13 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
                 levelData.mora = (levelData.mora || 0) + quest.reward.mora;
                 levelData.xp += quest.reward.xp;
                 levelData.totalXP += quest.reward.xp;
-                
                 const nextXP = 5 * (levelData.level ** 2) + (50 * levelData.level) + 100;
                 if (levelData.xp >= nextXP) {
                     const oldLevel = levelData.level;
                     levelData.xp -= nextXP;
                     levelData.level += 1;
                     const newLevel = levelData.level;
-                    // استدعاء اللفل أب اختياري هنا (عادة عبر messageCreate)
+                    // sendLevelUpMessage will be handled by messageCreate mainly
                 }
                 client.setLevel.run(levelData);
                 await client.sendQuestAnnouncement(member.guild, member, quest, questType);
@@ -279,7 +251,7 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
     }
 }
 
-// 5. التحقق من الإنجازات (Achievements) - ✅ تم ربط الأسماء بشكل صحيح
+// 5. التحقق من الإنجازات (مع تصحيح الأسماء) 🛠️✅
 client.checkAchievements = async function(client, member, levelData, totalStatsData) {
     for (const ach of questsConfig.achievements) {
         let currentProgress = 0;
@@ -289,14 +261,20 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
         if (!totalStatsData) totalStatsData = client.getTotalStats.get(`${member.id}-${member.guild.id}`) || {};
         totalStatsData = safeMerge(totalStatsData, defaultTotalStats); 
 
-        // ✅ ربط القيم (Mapping)
+        // ⬇️⬇️ هنا السحر: تحويل الأسماء لتطابق الداتا بيس ⬇️⬇️
         if (ach.stat === 'messages') currentProgress = totalStatsData.total_messages || 0;
+        else if (ach.stat === 'total_messages') currentProgress = totalStatsData.total_messages || 0; // احتياط
         else if (ach.stat === 'images') currentProgress = totalStatsData.total_images || 0;
         else if (ach.stat === 'stickers') currentProgress = totalStatsData.total_stickers || 0;
-        else if (ach.stat === 'highestStreak' && streakData) currentProgress = streakData.highestStreak || 0;
-        else if (ach.stat === 'highestMediaStreak' && mediaStreakData) currentProgress = mediaStreakData.highestStreak || 0;
+        else if (ach.stat === 'reactions_added') currentProgress = totalStatsData.total_reactions_added || 0;
+        else if (ach.stat === 'replies_sent') currentProgress = totalStatsData.total_replies_sent || 0;
+        else if (ach.stat === 'vc_minutes') currentProgress = totalStatsData.total_vc_minutes || 0;
+        else if (ach.stat === 'disboard_bumps') currentProgress = totalStatsData.total_disboard_bumps || 0;
+        // --------------------------------------------------------
         else if (levelData && levelData.hasOwnProperty(ach.stat)) currentProgress = levelData[ach.stat];
         else if (totalStatsData.hasOwnProperty(ach.stat)) currentProgress = totalStatsData[ach.stat];
+        else if (ach.stat === 'highestStreak' && streakData) currentProgress = streakData.highestStreak || 0;
+        else if (ach.stat === 'highestMediaStreak' && mediaStreakData) currentProgress = mediaStreakData.highestStreak || 0;
         else if (streakData && streakData.hasOwnProperty(ach.stat)) currentProgress = streakData[ach.stat];
         else {
              if (['has_caesar_role', 'has_race_role', 'has_tree_role', 'has_tag_role'].includes(ach.stat)) continue;
@@ -324,7 +302,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
-// 6. تحديث الإحصائيات (Quest Stats Increment)
+// 6. تحديث الإحصائيات
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     if (stat === 'messages') {
         if (!client.recentMessageTimestamps.has(guildID)) client.recentMessageTimestamps.set(guildID, []);
@@ -345,7 +323,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID, guildID };
 
         dailyStats = safeMerge(dailyStats, defaultDailyStats);
-        weeklyStats = safeMerge(weeklyStats, defaultDailyStats);
+        weeklyStats = safeMerge(weeklyStats, defaultWeeklyStats);
         totalStats = safeMerge(totalStats, defaultTotalStats);
 
         if (dailyStats.hasOwnProperty(stat)) dailyStats[stat] = (dailyStats[stat] || 0) + amount;
@@ -362,7 +340,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
             await client.checkQuests(client, member, dailyStats, 'daily', dateStr);
             await client.checkQuests(client, member, weeklyStats, 'weekly', weekStartDateStr);
             if (stat === 'disboard_bumps') await client.checkAchievements(client, member, null, totalStats);
-            if (stat === 'meow_count') {
+             if (stat === 'meow_count') {
                  let levelData = client.getLevel.get(userID, guildID);
                  if (levelData) await client.checkAchievements(client, member, levelData, totalStats);
             }
@@ -404,7 +382,7 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
 
 // --- عند تشغيل البوت (Ready Event) ---
 client.on(Events.ClientReady, async () => { 
-    console.log(`✅ Logged in as ${client.user.username} (Stable Version)`);
+    console.log(`✅ Logged in as ${client.user.username} (Fixed Mapping Version)`);
     
     // تجهيز أوامر SQL
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
