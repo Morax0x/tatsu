@@ -7,16 +7,7 @@ function getReportSettings(sql, guildID) {
     return sql.prepare("SELECT * FROM report_settings WHERE guildID = ?").get(guildID) || {};
 }
 
-function hasReportPermission(sql, member) {
-    if (member.permissions.has('Administrator') || member.id === member.guild.ownerId) return true;
-    const settings = getReportSettings(sql, member.guild.id);
-    if (!settings.logChannelID) return false; 
-    const allowedRoles = sql.prepare("SELECT roleID FROM report_permissions WHERE guildID = ?").all(member.guild.id);
-    if (allowedRoles.length === 0) return true; 
-    const allowedRoleIDs = allowedRoles.map(r => r.roleID);
-    return member.roles.cache.some(r => allowedRoleIDs.includes(r.id));
-}
-
+// دالة إرسال الأخطاء (نسخ لصق من منطق البايثون)
 async function sendReportError(destination, title, description, ephemeral = false) {
     const embed = new EmbedBuilder()
         .setTitle(title)
@@ -24,22 +15,20 @@ async function sendReportError(destination, title, description, ephemeral = fals
         .setColor(Colors.Red)
         .setImage("https://i.postimg.cc/L5hmJ9nT/h-K6-Ldr-K-1-2.gif");
 
-    if (destination.channel && !destination.isCommand && !destination.isInteraction) { 
-        try { await destination.delete(); } catch(e) {}
-        return destination.channel.send({ content: `${destination.author}`, embeds: [embed] }).then(msg => {
-            setTimeout(() => msg.delete().catch(() => {}), 10000);
-        });
+    // إذا كانت رسالة عادية (Manual)
+    if (destination.channel && !destination.isCommand && !destination.isInteraction) {
+        // نرد على الرسالة ثم نحذف الرد لاحقاً (اختياري) أو نبقيه
+        return destination.channel.send({ content: `${destination.author}`, embeds: [embed] });
     }
 
+    // إذا كان سلاش/تفاعل
     try {
         if (destination.replied || destination.deferred) {
             await destination.followUp({ embeds: [embed], ephemeral: ephemeral });
         } else {
             await destination.reply({ embeds: [embed], ephemeral: ephemeral });
         }
-    } catch (e) {
-        console.error("Failed to send report error:", e);
-    }
+    } catch (e) { }
 }
 
 async function processReportLogic(client, interactionOrMessage, targetMember, reason, reportedMessageLink = null) {
@@ -56,16 +45,16 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
     const REPORT_CHANNEL_ID = settings.reportChannelID; 
 
     const isSlash = !!interactionOrMessage.isChatInputCommand || !!interactionOrMessage.isContextMenuCommand || !!interactionOrMessage.isModalSubmit;
-    
-    // --- 1. قواعد الرفض ---
+
+    // 1. قواعد الرفض
     if (targetMember.id === reporter.id) {
-        return sendReportError(interactionOrMessage, "❖ بـلاغ مـرفـوض", "لا يمكنك البلاغ على نفسك.", true);
+        return sendReportError(interactionOrMessage, "❖ بـلاغ مـرفـوض", "يـليـل وبعدين معـاك تـبـي تبـلغ عـلى نفـسك ؟ مجـنون انـت؟؟ <:2controlyourlewdnyan:1417084755001741312>", isSlash);
     }
     if (targetMember.id === guild.ownerId) {
-        return sendReportError(interactionOrMessage, "❖ تـم رفـض بـلاغـك !", "لا يمكنك البلاغ على الأونر.", true);
+        return sendReportError(interactionOrMessage, "❖ تـم رفـض بـلاغـك !", "انـت تحـاول تـبلغ على الاونـر ؟؟ بتودينـا بداهيــة اهـرب <:2shocked:1414937309433823262> !!", isSlash);
     }
     if (targetMember.user.bot) {
-        return sendReportError(interactionOrMessage, "❖ تـم رفـض بـلاغـك !", "لا يمكنك البلاغ على بوت.", true);
+        return sendReportError(interactionOrMessage, "❖ تـم رفـض بـلاغـك !", "تحـاول تـبلغ على بـوت ؟؟ صـاحي انـت اقول قم انذلف <a:6bonk:1401906810973327430>", isSlash);
     }
 
     const currentTimestamp = Math.floor(Date.now() / 1000);
@@ -82,17 +71,18 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
     if (!isUnlimited) {
         const cooldownRecord = sql.prepare("SELECT timestamp FROM active_reports WHERE guildID = ? AND targetID = ? AND reporterID = ?").get(guild.id, targetMember.id, reporter.id);
         if (cooldownRecord && (currentTimestamp - cooldownRecord.timestamp) < COOLDOWN_DURATION) {
-            return sendReportError(interactionOrMessage, "❖ بـلاغ مـكـرر !", "لقد قمت بالبلاغ عن هذا الشخص مسبقاً.", true);
+            return sendReportError(interactionOrMessage, "❖ بـلاغ مـكـرر !", "حلاوة هي ؟ كل شوي تبلغ على نفس الشخص؟ ممنوع تبلغ على نفس الشخص مرتين باليوم <a:6Headwall:1401840722130374736>", isSlash);
         }
     }
 
+    // التسجيل في قاعدة البيانات
     sql.prepare("DELETE FROM active_reports WHERE timestamp < ?").run(currentTimestamp - COOLDOWN_DURATION);
     sql.prepare("INSERT OR REPLACE INTO active_reports (guildID, targetID, reporterID, timestamp) VALUES (?, ?, ?, ?)")
        .run(guild.id, targetMember.id, reporter.id, currentTimestamp);
     const reportCountData = sql.prepare("SELECT COUNT(DISTINCT reporterID) as count FROM active_reports WHERE guildID = ? AND targetID = ?").get(guild.id, targetMember.id);
     const reportCount = reportCountData.count;
 
-    // --- بناء الإيمبد الأساسي ---
+    // بناء الإيمبد
     const embedSuccess = new EmbedBuilder()
         .setTitle("❖ تـم تقديـم البلاغ بنـجـاح")
         .setDescription(
@@ -100,35 +90,35 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
             `✶ سبب البلاغ: ${reason}\n` +
             `✶ عدد البلاغات: ${reportCount}`
         )
-        .setColor(Colors.Red) 
+        .setColor(0xFF0000) 
         .setImage("https://i.postimg.cc/NGDJd8LZ/image.png");
 
-    // =================================================================
-    // 🌟 التعديل المطلوب هنا: التعامل مع APPS vs رسائل عادية 🌟
-    // =================================================================
+    // ======================================================
+    // 🌟 المنطق المطلوب: التفريق بين اليدوي والـ Apps 🌟
+    // ======================================================
     if (isSlash) {
-        // 1. رد مخفي للمبلغ (Ephemeral)
+        // 1. رد مخفي للمبلغ
         if (interactionOrMessage.replied || interactionOrMessage.deferred) {
             await interactionOrMessage.followUp({ embeds: [embedSuccess], ephemeral: true });
         } else {
             await interactionOrMessage.reply({ embeds: [embedSuccess], ephemeral: true });
         }
 
-        // 2. إرسال نسخة لقناة البلاغات بتذييل "APPS RE"
+        // 2. إرسال نسخة لقناة البلاغات بتذييل APPS RE
         const reportChannel = REPORT_CHANNEL_ID ? guild.channels.cache.get(REPORT_CHANNEL_ID) : null;
         if (reportChannel) {
             const publicEmbed = new EmbedBuilder(embedSuccess.toJSON())
                 .setFooter({ text: "APPS RE" }); // ✅ التذييل المطلوب
-
+            
             await reportChannel.send({ content: `${targetMember}`, embeds: [publicEmbed] });
         }
 
     } else {
-        // بلاغ عادي (رسالة) -> رد عادي
+        // 3. بلاغ يدوي: رد عادي في القناة (عام)
         await interactionOrMessage.reply({ embeds: [embedSuccess] });
     }
 
-    // --- إرسال للوج (Log) ---
+    // سجلات (Log)
     const logChannel = LOG_CHANNEL_ID ? guild.channels.cache.get(LOG_CHANNEL_ID) : null;
     if (logChannel) {
         const reportLinkText = reportedMessageLink ? `\n**🔗 رابط الرسالة:** [إضغط هنا](${reportedMessageLink})` : "";
@@ -141,12 +131,11 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
                 `${reportLinkText}\n` +
                 `✶ عدد البلاغات: ${reportCount}`
             )
-            .setColor(Colors.Red)
-            .setTimestamp();
+            .setColor(Colors.Red);
         await logChannel.send({ embeds: [logEmbed] });
     }
 
-    // --- السجن ---
+    // السجن
     if (reportCount >= 2) {
         try {
             const jailRole = JAIL_ROLE_ID ? guild.roles.cache.get(JAIL_ROLE_ID) : null;
@@ -169,18 +158,16 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
                 .setColor(Colors.Blue)
                 .setImage("https://i.postimg.cc/L6TpBZMs/image.png");
 
+            // إرسال رسالة السجن في قناة البلاغات (إذا وجدت)
             const reportChannel = REPORT_CHANNEL_ID ? guild.channels.cache.get(REPORT_CHANNEL_ID) : null;
-            if (reportChannel) {
-                await reportChannel.send({ embeds: [jailEmbed] });
-            }
+            if (reportChannel) await reportChannel.send({ embeds: [jailEmbed] });
 
-        } catch (e) {
-            console.error("خطأ في السجن:", e);
-        }
+        } catch (e) { console.error("Jail Error", e); }
     }
 }
 
 async function checkUnjailTask(client) {
+    // (نفس كود فك السجن السابق - لم يتغير)
     const sql = client.sql;
     const currentTimestamp = Math.floor(Date.now() / 1000);
     const jailedToRelease = sql.prepare("SELECT * FROM jailed_members WHERE unjailTime <= ?").all(currentTimestamp);
@@ -214,10 +201,4 @@ async function checkUnjailTask(client) {
     }
 }
 
-module.exports = {
-    getReportSettings,
-    hasReportPermission,
-    sendReportError,
-    processReportLogic,
-    checkUnjailTask
-};
+module.exports = { getReportSettings, hasReportPermission, sendReportError, processReportLogic, checkUnjailTask };
