@@ -34,7 +34,7 @@ const DESCRIPTION_TRANSLATIONS = new Map([
     ['reroll', 'إعادة سحب فائز في قيف اواي']
 ]);
 
-// خريطة للأسماء العربية اليدوية (للأوامر التي لا تملك alias عربي واضح)
+// خريطة للأسماء العربية اليدوية
 const MANUAL_ARABIC_NAMES = new Map([
     ['level', 'مستوى'],
     ['top', 'توب'],
@@ -73,11 +73,9 @@ function getArabicDescription(cmd) {
 }
 
 function getCmdName(commands, name) {
-    // أولاً نحاول جلب الاسم من الخريطة اليدوية
     if (MANUAL_ARABIC_NAMES.has(name)) {
         return MANUAL_ARABIC_NAMES.get(name);
     }
-
     const cmd = commands.get(name);
     if (!cmd) return name; 
 
@@ -85,7 +83,6 @@ function getCmdName(commands, name) {
     if (cmd.aliases && Array.isArray(cmd.aliases)) {
         arabicAlias = cmd.aliases.find(a => /[\u0600-\u06FF]/.test(a));
     }
-
     return arabicAlias || cmd.name;
 }
 
@@ -220,23 +217,22 @@ module.exports = {
         try {
             const focusedValue = interaction.options.getFocused().toLowerCase();
             const commands = interaction.client.commands;
-
+            // تصفية بسيطة للأوتوكومبليت لتجنب الأخطاء
             const filtered = commands.filter(cmd => 
-                cmd.name.toLowerCase().includes(focusedValue) ||
-                (cmd.aliases && cmd.aliases.some(a => a.toLowerCase().includes(focusedValue)))
+                cmd.name.toLowerCase().includes(focusedValue)
             ).map(cmd => ({
-                name: `${getCmdName(commands, cmd.name)} (${getArabicDescription(cmd).substring(0, 50)}...)`,
+                name: cmd.name,
                 value: cmd.name
             }));
-
             await interaction.respond(filtered.slice(0, 25));
         } catch (e) {
-            console.error('Autocomplete error in help:', e);
+            // تجاهل أخطاء الأوتوكومبليت الصامتة
         }
     },
 
     async execute(interactionOrMessage, args) {
 
+        // 1. تحديد نوع التفاعل
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         let interaction, message, guild, client, user;
 
@@ -253,13 +249,12 @@ module.exports = {
             user = message.author;
         }
 
+        // 2. دوال الرد الموحدة
         const reply = async (payload) => {
-            if (isSlash) {
-                return interaction.editReply(payload);
-            } else {
-                return message.channel.send(payload);
-            }
+            if (isSlash) return interaction.editReply(payload);
+            return message.channel.send(payload);
         };
+
         const replyError = async (content) => {
             const payload = { content, ephemeral: true };
             if (isSlash) return interaction.editReply(payload);
@@ -269,24 +264,23 @@ module.exports = {
         const sql = client.sql; 
         const { commands } = client;
 
+        // 3. جلب البريفكس
         let prefix = "-"; 
         try {
             const prefixRow = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(guild.id);
-            if (prefixRow && prefixRow.serverprefix) {
-                prefix = prefixRow.serverprefix;
-            }
-        } catch (e) {
-            console.log('Help cmd failed to get prefix, using default.');
-        }
+            if (prefixRow && prefixRow.serverprefix) prefix = prefixRow.serverprefix;
+        } catch (e) {}
 
+        // 4. التحقق من الصلاحيات
         if (!guild.members.me.permissions.has(PermissionsBitField.Flags.EmbedLinks)) {
             return replyError(`Missing Permission: EMBED_LINKS`);
         }
 
+        // 5. التعامل مع طلب أمر معين (Help <command>)
         let commandNameArg = null;
         if (isSlash) {
             commandNameArg = interaction.options.getString('اسم-الامر');
-        } else if (args.length) {
+        } else if (args && args.length > 0) {
             commandNameArg = args[0].toLowerCase();
         }
 
@@ -308,22 +302,24 @@ module.exports = {
                 .setDescription(
                     `**اسم الأمر**: \`${prefix}${command.name}\`\n` + 
                     `**الوصف**: ${getArabicDescription(command)}\n` + 
-                    `**الفئة**: \`${command.category ? command.category : "General"}\`\n` +
-                    `**اختصارات**: ${aliases}\n` +
+                    `**الفئة**: \`${command.category ? command.category : "General"}\`\n` + 
+                    `**اختصارات**: ${aliases}\n` + 
                     `**مدة الانتظار**: \`${command.cooldown ? command.cooldown + ' ثواني' : "لا يوجد"}\``
                 );
 
             return reply({ embeds: [embed] });
         }
 
+        // 6. بناء القائمة الرئيسية
         const isAdmin = guild.members.cache.get(user.id).permissions.has(PermissionsBitField.Flags.ManageGuild);
         let settings;
         try {
             settings = sql.prepare("SELECT casinoChannelID FROM settings WHERE guild = ?").get(guild.id);
         } catch (e) { settings = null; }
 
-        const isCasinoChannel = settings && settings.casinoChannelID === interactionOrMessage.channel.id;
-
+        // تحديد الإيمبد الافتراضي بناءً على القناة
+        const isCasinoChannel = settings && settings.casinoChannelID === (isSlash ? interaction.channel.id : message.channel.id);
+        
         const mainEmbed = buildMainMenuEmbed(client);
         const casinoEmbed = buildCasinoEmbed(client);
         let initialEmbed;
@@ -334,6 +330,7 @@ module.exports = {
             initialEmbed = mainEmbed;
         }
 
+        // 7. بناء القائمة المنسدلة
         const options = [
             new StringSelectMenuOptionBuilder()
                 .setLabel('القائمة الرئيسية')
@@ -369,8 +366,12 @@ module.exports = {
 
         const row = new ActionRowBuilder().addComponents(selectMenu);
 
+        // إرسال الرسالة
         const helpMessage = await reply({ embeds: [initialEmbed], components: [row] });
 
+        // 8. التعامل مع التفاعلات (Collector)
+        // ملاحظة: إذا كانت رسالة عادية، helpMessage هي الرسالة. إذا كانت سلاش، نحتاج لجلبها أحياناً، لكن editReply يرجع الرسالة في djs v14.
+        
         const filter = (i) => i.user.id === user.id && i.customId === 'help_menu';
         const collector = helpMessage.createMessageComponentCollector({ filter, componentType: ComponentType.StringSelect, time: 60000 });
 
@@ -395,7 +396,12 @@ module.exports = {
             const disabledRow = new ActionRowBuilder().addComponents(
                 selectMenu.setDisabled(true)
             );
-            helpMessage.edit({ components: [disabledRow] }).catch(() => {});
+            // محاولة تعديل الرسالة لتعطيل الزر
+            if (helpMessage.editable) {
+                helpMessage.edit({ components: [disabledRow] }).catch(() => {});
+            } else if (isSlash) {
+                interaction.editReply({ components: [disabledRow] }).catch(() => {});
+            }
         });
     }
 };
