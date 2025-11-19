@@ -44,7 +44,7 @@ const voiceXPCooldowns = new Map();
 client.recentMessageTimestamps = new Collection(); 
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
 const botToken = process.env.DISCORD_BOT_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID; // تأكد من وجود هذا في Secrets
+const CLIENT_ID = process.env.CLIENT_ID; 
 
 // ربط المتغيرات
 client.EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -226,6 +226,9 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
     }
 }
 
+// =====================================================================
+// ✅✅ دالة فحص الإنجازات المصححة (Mapping Fix) ✅✅
+// =====================================================================
 client.checkAchievements = async function(client, member, levelData, totalStatsData) {
     for (const ach of questsConfig.achievements) {
         let currentProgress = 0;
@@ -235,16 +238,29 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
         if (!totalStatsData) totalStatsData = client.getTotalStats.get(`${member.id}-${member.guild.id}`) || {};
         totalStatsData = client.safeMerge(totalStatsData, defaultTotalStats); 
 
+        // 🔄 هنا التصحيح: ربط الاسم في JSON بالاسم في الداتا بيس 🔄
         if (ach.stat === 'messages') currentProgress = totalStatsData.total_messages || 0;
+        else if (ach.stat === 'total_messages') currentProgress = totalStatsData.total_messages || 0; 
         else if (ach.stat === 'images') currentProgress = totalStatsData.total_images || 0;
         else if (ach.stat === 'stickers') currentProgress = totalStatsData.total_stickers || 0;
         else if (ach.stat === 'reactions_added') currentProgress = totalStatsData.total_reactions_added || 0;
+        else if (ach.stat === 'total_reactions_added') currentProgress = totalStatsData.total_reactions_added || 0;
         else if (ach.stat === 'replies_sent') currentProgress = totalStatsData.total_replies_sent || 0;
         else if (ach.stat === 'vc_minutes') currentProgress = totalStatsData.total_vc_minutes || 0;
+        else if (ach.stat === 'totalVCTime') currentProgress = totalStatsData.total_vc_minutes || 0; // تصحيح الاسم
         else if (ach.stat === 'disboard_bumps') currentProgress = totalStatsData.total_disboard_bumps || 0;
-        else if (ach.stat === 'meow_count') currentProgress = levelData?.total_meow_count || 0; 
+        
+        // 🐱 المياو والبوستات موجودة في جدول Levels وليس Stats
+        else if (ach.stat === 'total_meow_count' || ach.stat === 'meow_count') {
+             let ld = levelData || client.getLevel.get(member.id, member.guild.id);
+             currentProgress = ld ? (ld.total_meow_count || 0) : 0;
+        }
+        else if (ach.stat === 'boost_count') {
+             let ld = levelData || client.getLevel.get(member.id, member.guild.id);
+             currentProgress = ld ? (ld.boost_count || 0) : 0;
+        }
+        
         else if (levelData && levelData.hasOwnProperty(ach.stat)) currentProgress = levelData[ach.stat];
-        else if (totalStatsData.hasOwnProperty(ach.stat)) currentProgress = totalStatsData[ach.stat];
         else if (ach.stat === 'highestStreak' && streakData) currentProgress = streakData.highestStreak || 0;
         else if (ach.stat === 'highestMediaStreak' && mediaStreakData) currentProgress = mediaStreakData.highestStreak || 0;
         else if (streakData && streakData.hasOwnProperty(ach.stat)) currentProgress = streakData[ach.stat];
@@ -274,6 +290,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
+// 6. تحديث الإحصائيات
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     if (stat === 'messages') {
         if (!client.recentMessageTimestamps.has(guildID)) client.recentMessageTimestamps.set(guildID, []);
@@ -299,38 +316,28 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
 
         if (dailyStats.hasOwnProperty(stat)) dailyStats[stat] = (dailyStats[stat] || 0) + amount;
         if (weeklyStats.hasOwnProperty(stat)) weeklyStats[stat] = (weeklyStats[stat] || 0) + amount;
-        
         if (stat === 'disboard_bumps') totalStats.total_disboard_bumps = (totalStats.total_disboard_bumps || 0) + amount;
         
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
-        
         client.setTotalStats.run({
-            id: totalStatsId,
-            userID,
-            guildID,
-            total_messages: totalStats.total_messages,
-            total_images: totalStats.total_images,
-            total_stickers: totalStats.total_stickers,
-            total_reactions_added: totalStats.total_reactions_added,
-            replies_sent: totalStats.total_replies_sent,
-            mentions_received: totalStats.total_mentions_received,
-            total_vc_minutes: totalStats.total_vc_minutes,
-            total_disboard_bumps: totalStats.total_disboard_bumps
+            id: totalStatsId, userID, guildID,
+            total_messages: totalStats.total_messages, total_images: totalStats.total_images, total_stickers: totalStats.total_stickers,
+            total_reactions_added: totalStats.total_reactions_added, replies_sent: totalStats.total_replies_sent, mentions_received: totalStats.total_mentions_received,
+            total_vc_minutes: totalStats.total_vc_minutes, total_disboard_bumps: totalStats.total_disboard_bumps
         });
 
         const member = client.guilds.cache.get(guildID)?.members.cache.get(userID);
         if (member) {
             await client.checkQuests(client, member, dailyStats, 'daily', dateStr);
             await client.checkQuests(client, member, weeklyStats, 'weekly', weekStartDateStr);
-            if (stat === 'disboard_bumps') await client.checkAchievements(client, member, null, totalStats);
+            
+            // فحص الإنجازات
+            await client.checkAchievements(client, member, null, totalStats);
+
              if (stat === 'meow_count') {
                  let levelData = client.getLevel.get(userID, guildID);
-                 if (levelData) await client.checkAchievements(client, member, levelData, totalStats);
-            }
-            if (stat === 'water_tree') {
-                 let levelData = client.getLevel.get(userID, guildID);
-                 if (levelData) await client.checkAchievements(client, member, levelData, totalStats);
+                 if(levelData) await client.checkAchievements(client, member, levelData, totalStats);
             }
         }
     } catch (err) { console.error(`[IncrementQuestStats] Error:`, err.message); }
@@ -370,43 +377,24 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username}`);
     
-    // 🛑🛑🛑 تحديث الأوامر (Register/Refresh Commands) 🛑🛑🛑
     const rest = new REST({ version: '10' }).setToken(botToken);
     const commands = [];
-    
-    // تحميل أوامر السلاش والكونتكست من الملفات
     function getFiles(dir) {
         const files = fs.readdirSync(dir, { withFileTypes: true });
         let commandFiles = [];
         for (const file of files) {
-            if (file.isDirectory()) {
-                commandFiles = [...commandFiles, ...getFiles(path.join(dir, file.name))];
-            } else if (file.name.endsWith('.js')) {
-                commandFiles.push(path.join(dir, file.name));
-            }
+            if (file.isDirectory()) commandFiles = [...commandFiles, ...getFiles(path.join(dir, file.name))];
+            else if (file.name.endsWith('.js')) commandFiles.push(path.join(dir, file.name));
         }
         return commandFiles;
     }
-
     const commandFiles = getFiles(path.join(__dirname, 'commands'));
     for (const file of commandFiles) {
         const command = require(file);
-        if (command.data) {
-            commands.push(command.data.toJSON());
-            client.commands.set(command.data.name, command);
-        }
-        if (command.name) {
-             client.commands.set(command.name, command);
-        }
+        if (command.data) { commands.push(command.data.toJSON()); client.commands.set(command.data.name, command); }
+        if (command.name) { client.commands.set(command.name, command); }
     }
-
-    try {
-        console.log(`Started refreshing ${commands.length} application (/) commands.`);
-        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-        console.log(`Successfully reloaded application (/) commands.`);
-    } catch (error) {
-        console.error(error);
-    }
+    try { await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands }); console.log(`Successfully reloaded application (/) commands.`); } catch (error) { console.error(error); }
 
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
     client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP);");
@@ -419,10 +407,8 @@ client.on(Events.ClientReady, async () => {
     client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @replies_sent, @mentions_received, @total_vc_minutes, @total_disboard_bumps);");
     client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
     client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
-
     client.antiRolesCache = new Map();
     await loadRoleSettings(sql, client.antiRolesCache);
-    
     const calculateInterest = () => {}; calculateInterest(); setInterval(calculateInterest, 60 * 60 * 1000);
     const checkLoanPayments = async () => {}; checkLoanPayments(); setInterval(checkLoanPayments, 60 * 60 * 1000);
     function updateMarketPrices() { try { const allItems = sql.prepare("SELECT * FROM market_items").all(); if (allItems.length === 0) return; const updateStmt = sql.prepare(`UPDATE market_items SET currentPrice = ?, lastChangePercent = ?, lastChange = ? WHERE id = ?`); const transaction = sql.transaction(() => { for (const item of allItems) { const minChange = -0.05; const maxChange = 0.10; const changePercent = Math.random() * (maxChange - minChange) + minChange; const oldPrice = item.currentPrice; let newPrice = Math.max(10, Math.floor(oldPrice * (1 + changePercent))); const changeAmount = newPrice - oldPrice; updateStmt.run(newPrice, (changePercent * 100).toFixed(2), changeAmount, item.id); } }); transaction(); } catch (err) { console.error("[Market] Error:", err.message); } }
