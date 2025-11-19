@@ -7,6 +7,21 @@ function getReportSettings(sql, guildID) {
     return sql.prepare("SELECT * FROM report_settings WHERE guildID = ?").get(guildID) || {};
 }
 
+function hasReportPermission(sql, member) {
+    if (member.permissions.has('Administrator') || member.id === member.guild.ownerId) {
+        return true;
+    }
+    const settings = getReportSettings(sql, member.guild.id);
+    if (!settings.logChannelID) return false; 
+
+    const allowedRoles = sql.prepare("SELECT roleID FROM report_permissions WHERE guildID = ?").all(member.guild.id);
+    if (allowedRoles.length === 0) return true; 
+
+    const allowedRoleIDs = allowedRoles.map(r => r.roleID);
+    return member.roles.cache.some(r => allowedRoleIDs.includes(r.id));
+}
+
+// --- ( 🌟 تم التعديل: إزالة الحذف التلقائي للرسائل اليدوية 🌟 ) ---
 async function sendReportError(destination, title, description, ephemeral = false) {
     const embed = new EmbedBuilder()
         .setTitle(title)
@@ -14,22 +29,24 @@ async function sendReportError(destination, title, description, ephemeral = fals
         .setColor(Colors.Red)
         .setImage("https://i.postimg.cc/L5hmJ9nT/h-K6-Ldr-K-1-2.gif");
 
-    // إذا كان بلاغاً يدوياً (تم حذف الرسالة الأصلية)
+    // (للأوامر النصية - الرسائل)
     if (destination.channel && !destination.isCommand && !destination.isInteraction) { 
-        // نرسل رسالة للقناة ثم نحذفها بعد 10 ثواني للتنظيف
-        return destination.channel.send({ embeds: [embed] }).then(msg => {
-            setTimeout(() => msg.delete().catch(() => {}), 10000);
-        });
+        try { await destination.delete(); } catch(e) {} // نحذف رسالة العضو
+        
+        // ✅ التغيير هنا: نرسل الرسالة ولا نحذفها (تم إزالة setTimeout)
+        return destination.channel.send({ content: `${destination.author}`, embeds: [embed] });
     }
 
-    // إذا كان سلاش
+    // (لأوامر السلاش والتفاعلات)
     try {
         if (destination.replied || destination.deferred) {
             await destination.followUp({ embeds: [embed], ephemeral: ephemeral });
         } else {
             await destination.reply({ embeds: [embed], ephemeral: ephemeral });
         }
-    } catch (e) {}
+    } catch (e) {
+        console.error("Failed to send report error:", e);
+    }
 }
 
 async function processReportLogic(client, interactionOrMessage, targetMember, reason, reportedMessageLink = null) {
@@ -69,7 +86,6 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
        .run(guild.id, targetMember.id, reporter.id, currentTimestamp);
     const reportCount = sql.prepare("SELECT COUNT(DISTINCT reporterID) as count FROM active_reports WHERE guildID = ? AND targetID = ?").get(guild.id, targetMember.id).count;
 
-    // --- رسالة النجاح ---
     const embedSuccess = new EmbedBuilder()
         .setTitle("❖ تـم تقديـم البلاغ بنـجـاح")
         .setDescription(`✶ متلقي البلاغ: ${targetMember}\n✶ سبب البلاغ: ${reason}\n✶ عدد البلاغات: ${reportCount}`)
@@ -77,22 +93,20 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
         .setImage("https://i.postimg.cc/NGDJd8LZ/image.png");
 
     if (isSlash) {
-        // 1. السلاش (Apps): رد مخفي للمبلغ
-        await interactionOrMessage.reply({ embeds: [embedSuccess], ephemeral: true });
-        
-        // 2. نسخة للقناة (APPS RE)
+        if (interactionOrMessage.replied || interactionOrMessage.deferred) {
+            await interactionOrMessage.followUp({ embeds: [embedSuccess], ephemeral: true });
+        } else {
+            await interactionOrMessage.reply({ embeds: [embedSuccess], ephemeral: true });
+        }
         const reportChannel = REPORT_CHANNEL_ID ? guild.channels.cache.get(REPORT_CHANNEL_ID) : null;
         if (reportChannel) {
             const publicEmbed = new EmbedBuilder(embedSuccess.toJSON()).setFooter({ text: "APPS RE" }); 
             await reportChannel.send({ content: `${targetMember}`, embeds: [publicEmbed] });
         }
     } else {
-        // 3. اليدوي: إرسال للقناة بدون منشن للمبلغ (سري)
-        // بما أننا حذفنا رسالة العضو في messageCreate، نرسل رسالة جديدة للقناة
         await interactionOrMessage.channel.send({ content: `${targetMember}`, embeds: [embedSuccess] });
     }
 
-    // --- السجلات (Log) ---
     const logChannel = LOG_CHANNEL_ID ? guild.channels.cache.get(LOG_CHANNEL_ID) : null;
     if (logChannel) {
         const reportLink = reportedMessageLink ? `\n**🔗 رابط الرسالة:** [إضغط هنا](${reportedMessageLink})` : "";
@@ -103,7 +117,6 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
         await logChannel.send({ embeds: [logEmbed] });
     }
 
-    // --- السجن ---
     if (reportCount >= 2) {
         try {
             const jailRole = JAIL_ROLE_ID ? guild.roles.cache.get(JAIL_ROLE_ID) : null;
@@ -122,7 +135,7 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
     }
 }
 
-async function checkUnjailTask(client) { /* نفس كود فك السجن السابق */ 
+async function checkUnjailTask(client) {
     const sql = client.sql;
     const currentTimestamp = Math.floor(Date.now() / 1000);
     const jailedToRelease = sql.prepare("SELECT * FROM jailed_members WHERE unjailTime <= ?").all(currentTimestamp);
@@ -145,4 +158,4 @@ async function checkUnjailTask(client) { /* نفس كود فك السجن الس
     }
 }
 
-module.exports = { getReportSettings, sendReportError, processReportLogic, checkUnjailTask };
+module.exports = { getReportSettings, hasReportPermission, sendReportError, processReportLogic, checkUnjailTask };
