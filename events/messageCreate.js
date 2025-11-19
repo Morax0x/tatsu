@@ -1,6 +1,7 @@
 const { Events, EmbedBuilder, Colors, PermissionsBitField, ChannelType } = require("discord.js");
 const { handleStreakMessage, handleMediaStreakMessage, calculateBuffMultiplier } = require("../streak-handler.js");
 const { checkPermissions, checkCooldown } = require("../permission-handler.js");
+const { processReportLogic, sendReportError, getReportSettings } = require("../handlers/report-handler.js");
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
@@ -21,12 +22,12 @@ function safeMerge(base, defaults) {
     return result;
 }
 
-// القوالب
+// --- القوالب ---
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultWeeklyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
 
-// محرك التتبع
+// --- محرك التتبع ---
 async function trackMessageStats(message, client) {
     const sql = client.sql;
     try {
@@ -79,7 +80,7 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        // 1. Disboard Bump
+        // 1. Disboard Bump Fix
         if (message.author.bot) {
             if (message.author.id === DISBOARD_BOT_ID) {
                 if (message.embeds.length > 0 && message.embeds[0].description) {
@@ -89,7 +90,23 @@ module.exports = {
                         if (match && match[1]) {
                             const userID = match[1];
                             try {
-                                if (client.incrementQuestStats) await client.incrementQuestStats(userID, message.guild.id, 'disboard_bumps');
+                                // الإدخال المباشر للبومب (لضمان الاحتساب)
+                                const guildID = message.guild.id;
+                                const dateStr = getTodayDateString();
+                                const weekStr = getWeekStartDateString();
+                                const dailyID = `${userID}-${guildID}-${dateStr}`;
+                                const weeklyID = `${userID}-${guildID}-${weekStr}`;
+                                const totalID = `${userID}-${guildID}`;
+
+                                sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(dailyID, userID, guildID, dateStr);
+                                sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(weeklyID, userID, guildID, weekStr);
+                                sql.prepare(`INSERT INTO user_total_stats (id, userID, guildID, total_disboard_bumps) VALUES (?,?,?,1) ON CONFLICT(id) DO UPDATE SET total_disboard_bumps = total_disboard_bumps + 1`).run(totalID, userID, guildID);
+
+                                const member = await message.guild.members.fetch(userID).catch(() => null);
+                                if (member && client.checkQuests) {
+                                    await client.checkQuests(client, member, { disboard_bumps: 1000 }, 'daily', dateStr);
+                                    await client.checkAchievements(client, member, null, { total_disboard_bumps: 1000 });
+                                }
                             } catch (err) { console.error("[Bump Error]", err); }
                         }
                     }
@@ -101,9 +118,80 @@ module.exports = {
         if (!message.guild) return; 
 
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
-        let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         
-        // 2. الأوامر العادية (Prefix) - لها الأولوية
+        // ==================================================================
+        // 🎰 2. معالجة الكازينو (بدون بريفكس) - ✅ تم رفعها للأولوية
+        // ==================================================================
+        if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
+            const args = message.content.trim().split(/ +/);
+            const commandName = args.shift().toLowerCase();
+            
+            // البحث عن الأمر
+            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+            
+            // إذا كان الأمر موجوداً ومن فئة "Economy" (مثل slots, dice, coinflip)
+            if (command && command.category === "Economy") {
+                if (checkPermissions(message, command)) {
+                    const cooldownMsg = checkCooldown(message, command);
+                    if (cooldownMsg) {
+                        if (typeof cooldownMsg === 'string') message.reply(cooldownMsg);
+                    } else {
+                        try { await command.execute(message, args); } catch (error) { console.error(error); }
+                    }
+                }
+                return; // نتوقف هنا (لا نحسب XP ولا ستريك في الكازينو)
+            }
+            // إذا لم يكن أمراً، نتجاهل الرسالة (أو يمكن حذفها إذا أردت)
+            return;
+        }
+
+        // ==================================================================
+        // 📢 3. معالجة البلاغات اليدوية (بدون بريفكس)
+        // ==================================================================
+        let reportSettings = getReportSettings(sql, message.guild.id);
+        if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
+            // إذا بدأت بـ "بلاغ"
+            if (message.content.trim().startsWith("بلاغ")) {
+                const args = message.content.trim().split(/ +/);
+                args.shift(); 
+                await message.delete().catch(() => {});
+
+                const allowedRoles = sql.prepare("SELECT roleID FROM report_permissions WHERE guildID = ?").all(message.guild.id).map(r => r.roleID);
+                const hasPerm = message.member.permissions.has('Administrator') || allowedRoles.length === 0 || message.member.roles.cache.some(r => allowedRoles.includes(r.id));
+
+                if (!hasPerm) {
+                    return sendReportError(message, "❖ ليس لـديـك صلاحيـات التـبليـغ", "ليس لديك صلاحيات التبليغ.");
+                }
+
+                const target = message.mentions.members.first() || message.guild.members.cache.get(args[0]);
+                const reason = args.slice(1).join(" ");
+
+                if (!target || !reason) {
+                    return sendReportError(message, "✶ خطأ في التنسيق", "`بلاغ @user السبب`");
+                }
+
+                await processReportLogic(client, message, target, reason);
+                return; 
+            }
+            return; 
+        }
+
+        // ==================================================================
+        // 4. نظام الاختصارات (Shortcuts)
+        // ==================================================================
+        try {
+            const argsRaw = message.content.trim().split(/ +/);
+            const shortcutWord = argsRaw[0].toLowerCase();
+            const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
+            if (shortcut) {
+                const cmd = client.commands.get(shortcut.commandName);
+                if (cmd) { try { await cmd.execute(message, argsRaw.slice(1)); } catch(e){} return; }
+            }
+        } catch (err) {}
+
+        // ==================================================================
+        // 5. الأوامر العادية (Prefix)
+        // ==================================================================
         let Prefix = "-";
         try { 
             const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id);
@@ -137,12 +225,7 @@ module.exports = {
                         if (cooldownMsg) {
                             if (typeof cooldownMsg === 'string') message.reply(cooldownMsg);
                         } else {
-                            try {
-                                await command.execute(message, args);
-                            } catch (error) {
-                                console.error(`Error executing ${command.name}:`, error);
-                                message.reply("حدث خطأ أثناء تنفيذ الأمر.");
-                            }
+                            try { await command.execute(message, args); } catch (error) { console.error(error); message.reply("حدث خطأ."); }
                         }
                     }
                 }
@@ -150,68 +233,22 @@ module.exports = {
             }
         }
 
-        // 3. الاختصارات (Shortcuts)
+        // ==================================================================
+        // 6. أنظمة التتبع (Tracking) - (XP, Streak, Quests)
+        // ==================================================================
         try {
-            const argsRaw = message.content.trim().split(/ +/);
-            const shortcutWord = argsRaw[0].toLowerCase();
-            const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
-            if (shortcut) {
-                const cmd = client.commands.get(shortcut.commandName);
-                if (cmd) {
-                    try { await cmd.execute(message, argsRaw.slice(1)); } catch(e){}
-                    return;
-                }
-            }
-        } catch (err) {}
-
-        // 4. نظام البلاغات (تم الإصلاح: بدون منشن) ✅
-        if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
-            try {
-                // حذف الرسالة فوراً
-                await message.delete().catch(() => {});
-                
-                // تجهيز الإيمبد
-                const reportEmbed = new EmbedBuilder()
-                    .setTitle(`📢 بلاغ جديد`)
-                    .setColor(Colors.Red)
-                    .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
-                    .setDescription(`**محتوى البلاغ:**\n${message.content}`)
-                    .addFields(
-                        { name: 'صاحب البلاغ', value: `${message.author} (${message.author.id})`, inline: true },
-                        { name: 'القناة', value: `${message.channel}`, inline: true }
-                    )
-                    .setTimestamp();
-
-                if (message.attachments.size > 0) reportEmbed.setImage(message.attachments.first().url);
-                
-                // ✅ الإرسال بدون منشن (Embed Only)
-                await message.channel.send({ embeds: [reportEmbed] });
-
-            } catch (err) { console.error("[Report Error]", err); }
-            return; 
-        }
-
-        // 5. القنوات الخاصة (الكازينو)
-        if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
-            return;
-        }
-
-        // 6. أنظمة التتبع (Tracking)
-        try {
-            // البلاك ليست
             let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
 
-            // نظام العد
             if (settings && settings.countingChannelID && message.channel.id === settings.countingChannelID) {
-                if(client.incrementQuestStats) await client.incrementQuestStats(message.author.id, message.guild.id, 'counting_channel');
+                 // زيادة العد
+                 // ... (يمكن إضافتها هنا أو الاعتماد على trackMessageStats)
+                 // نفضل استخدام trackMessageStats لتوحيد المكان
             }
-            // نظام المياو
             if (message.content.toLowerCase().includes('مياو')) {
                 if(client.incrementQuestStats) await client.incrementQuestStats(message.author.id, message.guild.id, 'meow_count');
             }
             
-            // الميديا
             const isMediaChannel = sql.prepare("SELECT * FROM media_streak_channels WHERE guildID = ? AND channelID = ?").get(message.guild.id, message.channel.id);
             if (isMediaChannel) {
                 if (message.attachments.size > 0 || message.content.includes('http')) {
@@ -223,7 +260,7 @@ module.exports = {
             await handleStreakMessage(message);
             await trackMessageStats(message, client);
             
-            // نظام XP
+            // XP Logic
             let level = client.getLevel.get(message.author.id, message.guild.id);
             if (!level) level = { ...(client.defaultData || {}), xp: 0, level: 1, totalXP: 0, user: message.author.id, guild: message.guild.id };
             
