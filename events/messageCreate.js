@@ -4,7 +4,7 @@ const { checkPermissions, checkCooldown } = require("../permission-handler.js");
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// دوال المساعدة
+// --- دوال المساعدة ---
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
     const now = new Date();
@@ -21,12 +21,12 @@ function safeMerge(base, defaults) {
     return result;
 }
 
-// القوالب
+// --- القوالب ---
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultWeeklyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
 
-// دالة التتبع (المحرك)
+// --- محرك التتبع ---
 async function trackMessageStats(message, client) {
     const sql = client.sql;
     try {
@@ -79,19 +79,15 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        // ====================================================
-        // 🛠️ 1. إصلاح البومب (Disboard) - بدون تعقيد
-        // ====================================================
+        // 1. Disboard Bump Fix
         if (message.author.bot) {
             if (message.author.id === DISBOARD_BOT_ID) {
                 if (message.embeds.length > 0 && message.embeds[0].description) {
                     const desc = message.embeds[0].description;
-                    // التحقق من جميع الصيغ المحتملة
                     if (desc.includes('Bump done') || desc.includes('Bump successful') || desc.includes('بومب')) {
                         const match = desc.match(/<@!?(\d+)>/);
                         if (match && match[1]) {
                             const userID = match[1];
-                            console.log(`[BUMP DETECTED] User: ${userID}`);
                             try {
                                 if (client.incrementQuestStats) await client.incrementQuestStats(userID, message.guild.id, 'disboard_bumps');
                             } catch (err) { console.error("[Bump Error]", err); }
@@ -107,16 +103,76 @@ module.exports = {
         // جلب الإعدادات
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
+        
+        // 2. الأوامر العادية (Prefix) - ✅ تم رفعها للأعلى لتعمل دائماً
+        let Prefix = "-";
+        try { 
+            const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id);
+            if (row && row.serverprefix) Prefix = row.serverprefix;
+        } catch(e) {}
 
-        // ====================================================
-        // 🛠️ 2. إصلاح نظام البلاغات (مباشر)
-        // ====================================================
+        if (message.content.startsWith(Prefix)) {
+            const args = message.content.slice(Prefix.length).trim().split(/ +/);
+            const commandName = args.shift().toLowerCase();
+            const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+
+            if (command) {
+                let isAllowed = false;
+                // السماح دائماً للأدمن
+                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+                    isAllowed = true;
+                } else {
+                    try {
+                        // التحقق من القنوات المسموحة
+                        const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
+                        const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
+                        
+                        if (channelPerm || categoryPerm) isAllowed = true;
+                        else {
+                            // إذا لم يكن هناك أي قيود مسجلة للأمر، فهو مسموح للجميع
+                            const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, command.name);
+                            if (!hasRestrictions) isAllowed = true; 
+                        }
+                    } catch (err) { isAllowed = true; }
+                }
+
+                if (isAllowed) {
+                    if (checkPermissions(message, command)) {
+                        const cooldownMsg = checkCooldown(message, command);
+                        if (cooldownMsg) {
+                            if (typeof cooldownMsg === 'string') message.reply(cooldownMsg);
+                        } else {
+                            try {
+                                await command.execute(message, args);
+                            } catch (error) {
+                                console.error(`Error executing ${command.name}:`, error);
+                                message.reply("حدث خطأ أثناء تنفيذ الأمر.");
+                            }
+                        }
+                    }
+                }
+                return; // ✅ نخرج هنا حتى لا نحسب XP للأوامر
+            }
+        }
+
+        // 3. نظام الاختصارات (Shortcuts)
+        try {
+            const argsRaw = message.content.trim().split(/ +/);
+            const shortcutWord = argsRaw[0].toLowerCase();
+            const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
+            if (shortcut) {
+                const cmd = client.commands.get(shortcut.commandName);
+                if (cmd) {
+                    try { await cmd.execute(message, argsRaw.slice(1)); } catch(e){}
+                    return;
+                }
+            }
+        } catch (err) {}
+
+        // 4. نظام البلاغات (يعمل فقط إذا لم يكن أمراً)
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             try {
-                // حذف رسالة العضو
                 await message.delete().catch(() => {});
-
-                // إنشاء إيمبد البلاغ
                 const reportEmbed = new EmbedBuilder()
                     .setTitle(`📢 بلاغ جديد | Report`)
                     .setColor(Colors.Red)
@@ -126,72 +182,75 @@ module.exports = {
                         { name: 'صاحب البلاغ', value: `${message.author} (${message.author.id})`, inline: true },
                         { name: 'القناة', value: `${message.channel}`, inline: true }
                     )
-                    .setTimestamp()
-                    .setFooter({ text: 'نظام البلاغات التلقائي' });
+                    .setTimestamp();
 
-                // إرفاق الصور إن وجدت
-                if (message.attachments.size > 0) {
-                    reportEmbed.setImage(message.attachments.first().url);
-                }
-
-                // إرسال البلاغ لنفس القناة (ليراه المشرفون) أو يمكن توجيهه لقناة خاصة
-                // هنا سأرسله لنفس القناة كرسالة من البوت لترتيب الشكل
-                const sentMsg = await message.channel.send({ content: `||@here||`, embeds: [reportEmbed] });
-                
-                // (اختياري) إرسال رسالة تأكيد للعضو في الخاص
-                /*
-                message.author.send({ 
-                    content: `✅ تم استلام بلاغك بنجاح وسيتم مراجعته من قبل الإدارة.` 
-                }).catch(() => {});
-                */
-               
-            } catch (err) {
-                console.error("[Report Error]", err);
-            }
-            return; // توقف هنا، لا تحسب نقاط للبلاغ
+                if (message.attachments.size > 0) reportEmbed.setImage(message.attachments.first().url);
+                await message.channel.send({ content: `||@here||`, embeds: [reportEmbed] });
+            } catch (err) { console.error("[Report Error]", err); }
+            return; 
         }
 
-        // ====================================================
-        // 3. التعامل مع القنوات الخاصة (مثل الكازينو)
-        // ====================================================
+        // 5. القنوات الخاصة (الكازينو)
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
-            // ... (كود الكازينو كما هو، اختصرته للتركيز) ...
+            // إذا كان المستخدم يتحدث في قناة الكازينو ولم يكن أمراً (لأن الأوامر تم التعامل معها فوق)، نحذف الرسالة
+            // message.delete().catch(()=>{}); // اختياري
+            return;
         }
 
-        // ====================================================
-        // 4. تشغيل الأنظمة الأساسية
-        // ====================================================
-
-        // البريفكس والأوامر
-        let Prefix = "-"; 
-        try { 
-            const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id);
-            if (row) Prefix = row.serverprefix;
-        } catch(e) {}
-
-        if (message.content.startsWith(Prefix)) {
-            // ... (كود تشغيل الأوامر كما هو) ...
-        }
-
-        // أنظمة التتبع (XP, Streak, Quests)
+        // 6. أنظمة التتبع (Tracking)
         try {
+            // البلاك ليست
+            let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
+            if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
+
             // نظام العد
             if (settings && settings.countingChannelID && message.channel.id === settings.countingChannelID) {
-               if(client.incrementQuestStats) await client.incrementQuestStats(message.author.id, message.guild.id, 'counting_channel');
+                if(client.incrementQuestStats) await client.incrementQuestStats(message.author.id, message.guild.id, 'counting_channel');
             }
             // نظام المياو
             if (message.content.toLowerCase().includes('مياو')) {
                 if(client.incrementQuestStats) await client.incrementQuestStats(message.author.id, message.guild.id, 'meow_count');
             }
             
-            await handleStreakMessage(message); // ستريك
-            await trackMessageStats(message, client); // مهام
+            // الميديا
+            const isMediaChannel = sql.prepare("SELECT * FROM media_streak_channels WHERE guildID = ? AND channelID = ?").get(message.guild.id, message.channel.id);
+            if (isMediaChannel) {
+                if (message.attachments.size > 0 || message.content.includes('http')) {
+                    await handleMediaStreakMessage(message);
+                    return; 
+                }
+            }
+
+            await handleStreakMessage(message);
+            await trackMessageStats(message, client);
             
-            // كود الـ XP (موجود في ملف index.js بشكل عام، لكن الاستدعاء هنا)
+            // نظام XP
             let level = client.getLevel.get(message.author.id, message.guild.id);
-            if (!level) level = { ...client.defaultData, user: message.author.id, guild: message.guild.id };
-            // ... (حساب XP بسيط) ...
-            client.setLevel.run(level);
+            if (!level) level = { ...(client.defaultData || {}), xp: 0, level: 1, totalXP: 0, user: message.author.id, guild: message.guild.id };
+            
+            let getXpfromDB = settings?.customXP || 25;
+            let getCooldownfromDB = settings?.customCooldown || 60000;
+
+            if (!client.talkedRecently.get(message.author.id)) {
+                const generatedXp_base = Math.floor(Math.random() * (getXpfromDB - 1 + 1)) + 1;
+                const buffMultiplier = calculateBuffMultiplier(message.member, sql);
+                const finalXP = Math.floor(generatedXp_base * buffMultiplier);
+                
+                level.xp += finalXP;
+                level.totalXP += finalXP;
+                
+                const nextXP = 5 * (level.level ** 2) + (50 * level.level) + 100;
+                if (level.xp >= nextXP) {
+                    const oldLevel = level.level;
+                    level.xp -= nextXP;
+                    level.level += 1;
+                    const newLevel = level.level;
+                    if (client.sendLevelUpMessage) await client.sendLevelUpMessage(message, message.member, newLevel, oldLevel, level);
+                }
+                client.setLevel.run(level);
+                client.talkedRecently.set(message.author.id, Date.now() + getCooldownfromDB);
+                setTimeout(() => client.talkedRecently.delete(message.author.id), getCooldownfromDB);
+            }
 
         } catch (err) { console.error("[Tracking Error]", err); }
     },
