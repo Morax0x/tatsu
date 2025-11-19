@@ -56,6 +56,7 @@ client.EMOJI_WII = '<a:wii:1435572329039007889>';
 client.EMOJI_FASTER = '<a:JaFaster:1435572430042042409>';
 client.EMOJI_PRAY = '<:0Pray:1437067281493524502>';
 client.EMOJI_COOL = '<a:NekoCool:1435572459276337245>';
+// ✅ الإيموجي الجديد للـ XP (مهم جداً لظهوره في الرسالة)
 const EMOJI_XP_ANIM = '<a:levelup:1437805366048985290>';
 
 client.generateSingleAchievementAlert = generateSingleAchievementAlert;
@@ -151,6 +152,9 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
     } catch (err) { console.error(`[LevelUp Error]: ${err.message}`); }
 }
 
+// =========================================================================
+// 🛠️ دالة الإرسال (محدثة بالتنسيق الجديد)
+// =========================================================================
 client.sendQuestAnnouncement = async function(guild, member, quest, questType = 'achievement') {
     try {
         const id = `${member.id}-${guild.id}`;
@@ -182,7 +186,9 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
         let message = '';
         let files = []; 
         let attachmentError = false; 
-        const rewardDetails = `\n- **حصـلـت عـلـى:**\n- Mora: \`${reward.mora.toLocaleString()}\` ${client.EMOJI_MORA} | XP: \`${reward.xp.toLocaleString()}\` ${EMOJI_XP_ANIM}`;
+
+        // ✅ 1. تجهيز نص الجائزة بالتنسيق المطلوب (خلفية سوداء للأرقام فقط)
+        const rewardDetails = `\n- **حصـلـت عـلـى:**\nMora: \`${reward.mora.toLocaleString()}\` ${client.EMOJI_MORA} | XP: \`${reward.xp.toLocaleString()}\` ${EMOJI_XP_ANIM}`;
 
         if (canAttachFiles) {
             try {
@@ -200,6 +206,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
             }
         }
 
+        // ✅ 2. إضافة نص الجائزة في نهاية الرسالة
         if (questType === 'achievement') {
             message = [
                 `╭⭒★︰ ${client.EMOJI_WI} ${userIdentifier} ${client.EMOJI_WII}`,
@@ -207,7 +214,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
                 `✥ انـجـاز: **${questName}**`,
                 ``,
                 `- فـالتسـجل امبراطوريتـنـا اسمـك بيـن العضـمـاء ${client.EMOJI_PRAY}`,
-                (attachmentError || !canAttachFiles || files.length === 0) ? `\n🎁 **الـجائـزة:** ${rewardText}` : '' 
+                rewardDetails // <-- هنا يظهر النص الجديد
             ].join('\n');
         } else {
             const typeText = questType === 'daily' ? 'يوميـة' : 'اسبوعيـة';
@@ -216,10 +223,9 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
                 `✶ اتـممـت مهمـة ${typeText}`,
                 `✥ الـمهـمـة: **${questName}**`,
                 ``,
-                `- لقـد أثبـت انـك احـد ارـكـان الامبراطـورية ${client.EMOJI_PRAY}`,
+                `- لقـد أثبـت انـك احـد اركـان الامبراطـورية ${client.EMOJI_PRAY}`,
                 `- لا يُكلـف مثـلك الا بالمستحيـل ${client.EMOJI_COOL} ~`,
-                ``,
-                (attachmentError || !canAttachFiles || files.length === 0) ? `\n🎁 **الـجائـزة:** ${rewardText}` : ''
+                rewardDetails // <-- هنا يظهر النص الجديد
             ].join('\n');
         }
         
@@ -228,6 +234,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
     } catch (err) { console.error("Error sending quest announcement:", err.message); }
 }
 
+// 4. التحقق من المهام
 client.checkQuests = async function(client, member, stats, questType, dateKey) {
     const questsToCheck = questsConfig[questType] || [];
     for (const quest of questsToCheck) {
@@ -255,6 +262,7 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
     }
 }
 
+// 5. التحقق من الإنجازات
 client.checkAchievements = async function(client, member, levelData, totalStatsData) {
     for (const ach of questsConfig.achievements) {
         let currentProgress = 0;
@@ -265,13 +273,19 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
         totalStatsData = client.safeMerge(totalStatsData, defaultTotalStats); 
 
         if (ach.stat === 'messages') currentProgress = totalStatsData.total_messages || 0;
+        else if (ach.stat === 'total_messages') currentProgress = totalStatsData.total_messages || 0; 
         else if (ach.stat === 'images') currentProgress = totalStatsData.total_images || 0;
         else if (ach.stat === 'stickers') currentProgress = totalStatsData.total_stickers || 0;
         else if (ach.stat === 'reactions_added') currentProgress = totalStatsData.total_reactions_added || 0;
+        else if (ach.stat === 'total_reactions_added') currentProgress = totalStatsData.total_reactions_added || 0;
         else if (ach.stat === 'replies_sent') currentProgress = totalStatsData.total_replies_sent || 0;
         else if (ach.stat === 'vc_minutes') currentProgress = totalStatsData.total_vc_minutes || 0;
+        else if (ach.stat === 'totalVCTime') currentProgress = totalStatsData.total_vc_minutes || 0;
         else if (ach.stat === 'disboard_bumps') currentProgress = totalStatsData.total_disboard_bumps || 0;
-        else if (ach.stat === 'meow_count') currentProgress = levelData?.total_meow_count || 0; 
+        else if (ach.stat === 'meow_count' || ach.stat === 'total_meow_count') {
+             let ld = levelData || client.getLevel.get(member.id, member.guild.id);
+             currentProgress = ld ? (ld.total_meow_count || 0) : 0;
+        }
         else if (ach.stat === 'boost_count') {
              let ld = levelData || client.getLevel.get(member.id, member.guild.id);
              currentProgress = ld ? (ld.boost_count || 0) : 0;
@@ -307,6 +321,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
+// 6. تحديث الإحصائيات
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     if (stat === 'messages') {
         if (!client.recentMessageTimestamps.has(guildID)) client.recentMessageTimestamps.set(guildID, []);
@@ -332,24 +347,16 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
 
         if (dailyStats.hasOwnProperty(stat)) dailyStats[stat] = (dailyStats[stat] || 0) + amount;
         if (weeklyStats.hasOwnProperty(stat)) weeklyStats[stat] = (weeklyStats[stat] || 0) + amount;
-        
         if (stat === 'disboard_bumps') totalStats.total_disboard_bumps = (totalStats.total_disboard_bumps || 0) + amount;
         
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         
         client.setTotalStats.run({
-            id: totalStatsId,
-            userID,
-            guildID,
-            total_messages: totalStats.total_messages,
-            total_images: totalStats.total_images,
-            total_stickers: totalStats.total_stickers,
-            total_reactions_added: totalStats.total_reactions_added,
-            replies_sent: totalStats.total_replies_sent,
-            mentions_received: totalStats.total_mentions_received,
-            total_vc_minutes: totalStats.total_vc_minutes,
-            total_disboard_bumps: totalStats.total_disboard_bumps
+            id: totalStatsId, userID, guildID,
+            total_messages: totalStats.total_messages, total_images: totalStats.total_images, total_stickers: totalStats.total_stickers,
+            total_reactions_added: totalStats.total_reactions_added, replies_sent: totalStats.total_replies_sent, mentions_received: totalStats.total_mentions_received,
+            total_vc_minutes: totalStats.total_vc_minutes, total_disboard_bumps: totalStats.total_disboard_bumps
         });
 
         const member = client.guilds.cache.get(guildID)?.members.cache.get(userID);
@@ -396,9 +403,8 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
     } catch (err) { console.error(`[checkRoleAchievement] Error:`, err.message); }
 }
 
-// --- عند تشغيل البوت ---
 client.on(Events.ClientReady, async () => { 
-    console.log(`✅ Logged in as ${client.user.username} (Bank Interest 0.50%)`);
+    console.log(`✅ Logged in as ${client.user.username} (Formatted Rewards)`);
     
     const rest = new REST({ version: '10' }).setToken(botToken);
     const commands = [];
@@ -433,21 +439,17 @@ client.on(Events.ClientReady, async () => {
     client.antiRolesCache = new Map();
     await loadRoleSettings(sql, client.antiRolesCache);
 
-    // ==================================================================
-    // 💰 نظام الفائدة البنكية (0.50%)
-    // ==================================================================
     const calculateInterest = () => {
         const now = Date.now();
-        const INTEREST_RATE = 0.005; // ✅ 0.50% كما طلبت
+        const INTEREST_RATE = 0.005; // 0.50%
         const COOLDOWN = 24 * 60 * 60 * 1000; 
-
         const allUsers = sql.prepare("SELECT * FROM levels WHERE bank > 0").all();
         for (const user of allUsers) {
             if ((now - user.lastInterest) >= COOLDOWN) {
                 const interestAmount = Math.floor(user.bank * INTEREST_RATE);
                 if (interestAmount > 0) {
                     sql.prepare("UPDATE levels SET bank = bank + ?, lastInterest = ?, totalInterestEarned = totalInterestEarned + ? WHERE user = ? AND guild = ?").run(interestAmount, now, interestAmount, user.user, user.guild);
-                    console.log(`[Bank] تم إضافة فائدة ${interestAmount} مورا للعضو ${user.user}`);
+                    console.log(`[Bank] Added ${interestAmount} interest to ${user.user}`);
                 } else {
                     sql.prepare("UPDATE levels SET lastInterest = ? WHERE user = ? AND guild = ?").run(now, user.user, user.guild);
                 }
@@ -456,7 +458,6 @@ client.on(Events.ClientReady, async () => {
     };
     setInterval(calculateInterest, 60 * 60 * 1000);
     calculateInterest();
-    // ==================================================================
 
     const checkLoanPayments = async () => {}; checkLoanPayments(); setInterval(checkLoanPayments, 60 * 60 * 1000);
     function updateMarketPrices() { try { const allItems = sql.prepare("SELECT * FROM market_items").all(); if (allItems.length === 0) return; const updateStmt = sql.prepare(`UPDATE market_items SET currentPrice = ?, lastChangePercent = ?, lastChange = ? WHERE id = ?`); const transaction = sql.transaction(() => { for (const item of allItems) { const minChange = -0.05; const maxChange = 0.10; const changePercent = Math.random() * (maxChange - minChange) + minChange; const oldPrice = item.currentPrice; let newPrice = Math.max(10, Math.floor(oldPrice * (1 + changePercent))); const changeAmount = newPrice - oldPrice; updateStmt.run(newPrice, (changePercent * 100).toFixed(2), changeAmount, item.id); } }); transaction(); } catch (err) { console.error("[Market] Error:", err.message); } }
