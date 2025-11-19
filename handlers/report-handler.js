@@ -21,7 +21,7 @@ function hasReportPermission(sql, member) {
     return member.roles.cache.some(r => allowedRoleIDs.includes(r.id));
 }
 
-// --- ( 🌟 تم إصلاح هذه الدالة 🌟 ) ---
+// --- ( 🌟 دالة إرسال الخطأ المصححة 🌟 ) ---
 async function sendReportError(destination, title, description, ephemeral = false) {
     const embed = new EmbedBuilder()
         .setTitle(title)
@@ -29,13 +29,13 @@ async function sendReportError(destination, title, description, ephemeral = fals
         .setColor(Colors.Red)
         .setImage("https://i.postimg.cc/L5hmJ9nT/h-K6-Ldr-K-1-2.gif");
 
-    // (للأوامر النصية - بريفكس)
-    if (destination.channel) { 
+    // (للأوامر النصية - الرسائل)
+    if (destination.channel && !destination.isCommand && !destination.isInteraction) { 
         try { await destination.delete(); } catch(e) {}
-
-        // (الكود الخاطئ كان 'destination.reply')
-        // (الكود الصحيح هو 'destination.channel.send' ليتجنب الكراش)
-        return destination.channel.send({ embeds: [embed] });
+        // نستخدم channel.send بدلاً من reply لتجنب الخطأ إذا حذفت الرسالة
+        return destination.channel.send({ content: `${destination.author}`, embeds: [embed] }).then(msg => {
+            setTimeout(() => msg.delete().catch(() => {}), 10000);
+        });
     }
 
     // (لأوامر السلاش والتفاعلات)
@@ -49,7 +49,7 @@ async function sendReportError(destination, title, description, ephemeral = fals
         console.error("Failed to send report error:", e);
     }
 }
-// --- ( 🌟 نهاية الإصلاح 🌟 ) ---
+// --- ( 🌟 نهاية دالة الخطأ 🌟 ) ---
 
 async function processReportLogic(client, interactionOrMessage, targetMember, reason, reportedMessageLink = null) {
     const sql = client.sql;
@@ -64,8 +64,9 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
     const TEST_ROLE_ID = settings.testRoleID;
     const REPORT_CHANNEL_ID = settings.reportChannelID; 
 
+    // تحديد نوع الأمر (هل هو تفاعل أم رسالة عادية)
     const isSlash = !!interactionOrMessage.isChatInputCommand || !!interactionOrMessage.isContextMenuCommand || !!interactionOrMessage.isModalSubmit;
-    const ephemeral = isSlash; 
+    const ephemeral = isSlash; // نجعل الرد مخفياً فقط إذا كان سلاش/تفاعل
 
     // --- 1. قواعد الرفض ---
     if (targetMember.id === reporter.id) {
@@ -106,7 +107,7 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
     const reportCountData = sql.prepare("SELECT COUNT(DISTINCT reporterID) as count FROM active_reports WHERE guildID = ? AND targetID = ?").get(guild.id, targetMember.id);
     const reportCount = reportCountData.count;
 
-    // --- 4. بناء رسالة التأكيد ---
+    // --- 4. بناء رسالة التأكيد (التي ستظهر للمبلغ) ---
     const embedSuccess = new EmbedBuilder()
         .setTitle("❖ تـم تقديـم البلاغ بنـجـاح")
         .setDescription(
@@ -117,6 +118,7 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
         .setColor(Colors.Red) 
         .setImage("https://i.postimg.cc/NGDJd8LZ/image.png");
 
+    // إرسال الرد للمبلغ (مخفي في حالة السلاش)
     if (isSlash) {
         if (interactionOrMessage.replied || interactionOrMessage.deferred) {
             await interactionOrMessage.followUp({ embeds: [embedSuccess], ephemeral: true });
@@ -124,24 +126,27 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
             await interactionOrMessage.reply({ embeds: [embedSuccess], ephemeral: true });
         }
     } else {
+        // إذا كانت رسالة عادية
         await interactionOrMessage.reply({ embeds: [embedSuccess] });
     }
 
-    // --- 5. إرسال النسخة العامة (للسلاش والكونتكست منيو) ---
+    // --- 5. إرسال النسخة العامة لقناة البلاغات (فقط إذا كان عبر APPS/Slash) ---
+    // لأن البلاغ الكتابي في القناة يظهر أصلاً، أما السلاش المخفي فيحتاج نسخة تظهر للمشرفين
     const reportChannel = REPORT_CHANNEL_ID ? guild.channels.cache.get(REPORT_CHANNEL_ID) : null;
 
     if (isSlash && reportChannel) {
         const publicEmbed = new EmbedBuilder(embedSuccess.toJSON()) 
-            .setFooter({ text: "APPS RE" }); 
+            .setFooter({ text: `مقدم البلاغ: ${reporter.user.tag}`, iconURL: reporter.user.displayAvatarURL() }); 
 
         try {
+            // نرسل نسخة للقناة عشان المشرفين يشوفونها
             await reportChannel.send({ content: `${targetMember}`, embeds: [publicEmbed] });
         } catch (e) {
             console.error("Report Handler Error: Failed to send public copy to report channel:", e);
         }
     }
 
-    // --- 6. إرسال البلاغ إلى قناة السجلات (Log) ---
+    // --- 6. إرسال البلاغ إلى قناة السجلات (Log Channel - السجل السري) ---
     const logChannel = LOG_CHANNEL_ID ? guild.channels.cache.get(LOG_CHANNEL_ID) : null;
     if (logChannel) {
         const reportLinkText = reportedMessageLink ? `\n**🔗 رابط الرسالة:** [إضغط هنا](${reportedMessageLink})` : "";
@@ -154,11 +159,12 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
                 `${reportLinkText}\n` +
                 `✶ عدد البلاغات: ${reportCount}`
             )
-            .setColor(Colors.Red);
+            .setColor(Colors.Red)
+            .setTimestamp();
         await logChannel.send({ embeds: [logEmbed] });
     }
 
-    // --- 7. نظام العقاب (السجن) ---
+    // --- 7. نظام العقاب (السجن التلقائي) ---
     if (reportCount >= 2) {
         try {
             const jailRole = JAIL_ROLE_ID ? guild.roles.cache.get(JAIL_ROLE_ID) : null;
@@ -172,9 +178,7 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
             }
 
             const unjailTime = currentTimestamp + JAIL_DURATION;
-            sql.prepare("INSERT OR REPLACE INTO jailed_members (guildID, userID, unjailTime) VALUES (?, ?, ?)")
-               .run(guild.id, targetMember.id, unjailTime);
-
+            sql.prepare("INSERT OR REPLACE INTO jailed_members (guildID, userID, unjailTime) VALUES (?, ?, ?)").run(guild.id, targetMember.id, unjailTime);
             sql.prepare("DELETE FROM active_reports WHERE guildID = ? AND targetID = ?").run(guild.id, targetMember.id);
 
             const jailEmbed = new EmbedBuilder()
@@ -183,13 +187,14 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
                 .setColor(Colors.Blue)
                 .setImage("https://i.postimg.cc/L6TpBZMs/image.png");
 
+            // إرسال إشعار السجن في قناة البلاغات
             if (reportChannel) {
                 await reportChannel.send({ embeds: [jailEmbed] });
             }
 
         } catch (e) {
             console.error("خطأ في السجن:", e);
-            const errorMsg = `⚠️ **خطأ في السجن:** لم أتمكن من تعديل الأدوار للمستخدم ${targetMember}. يرجى التحقق من صلاحياتي. (${e.message})`;
+            const errorMsg = `⚠️ **خطأ في السجن:** لم أتمكن من تعديل الأدوار للمستخدم ${targetMember}. يرجى التحقق من صلاحياتي.`;
             if (reportChannel) await reportChannel.send(errorMsg);
         }
     }
