@@ -56,20 +56,19 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
     const REPORT_CHANNEL_ID = settings.reportChannelID; 
 
     const isSlash = !!interactionOrMessage.isChatInputCommand || !!interactionOrMessage.isContextMenuCommand || !!interactionOrMessage.isModalSubmit;
-    const ephemeral = isSlash; 
-
+    
+    // --- 1. قواعد الرفض ---
     if (targetMember.id === reporter.id) {
-        return sendReportError(interactionOrMessage, "❖ بـلاغ مـرفـوض", "لا يمكنك البلاغ على نفسك.", ephemeral);
+        return sendReportError(interactionOrMessage, "❖ بـلاغ مـرفـوض", "لا يمكنك البلاغ على نفسك.", true);
     }
     if (targetMember.id === guild.ownerId) {
-        return sendReportError(interactionOrMessage, "❖ تـم رفـض بـلاغـك !", "لا يمكنك البلاغ على الأونر.", ephemeral);
+        return sendReportError(interactionOrMessage, "❖ تـم رفـض بـلاغـك !", "لا يمكنك البلاغ على الأونر.", true);
     }
     if (targetMember.user.bot) {
-        return sendReportError(interactionOrMessage, "❖ تـم رفـض بـلاغـك !", "لا يمكنك البلاغ على بوت.", ephemeral);
+        return sendReportError(interactionOrMessage, "❖ تـم رفـض بـلاغـك !", "لا يمكنك البلاغ على بوت.", true);
     }
 
     const currentTimestamp = Math.floor(Date.now() / 1000);
-
     const unlimitedRole = UNLIMITED_ROLE_ID ? guild.roles.cache.get(UNLIMITED_ROLE_ID) : null;
     const testRole = TEST_ROLE_ID ? guild.roles.cache.get(TEST_ROLE_ID) : null;
 
@@ -83,7 +82,7 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
     if (!isUnlimited) {
         const cooldownRecord = sql.prepare("SELECT timestamp FROM active_reports WHERE guildID = ? AND targetID = ? AND reporterID = ?").get(guild.id, targetMember.id, reporter.id);
         if (cooldownRecord && (currentTimestamp - cooldownRecord.timestamp) < COOLDOWN_DURATION) {
-            return sendReportError(interactionOrMessage, "❖ بـلاغ مـكـرر !", "لقد قمت بالبلاغ عن هذا الشخص مسبقاً.", ephemeral);
+            return sendReportError(interactionOrMessage, "❖ بـلاغ مـكـرر !", "لقد قمت بالبلاغ عن هذا الشخص مسبقاً.", true);
         }
     }
 
@@ -93,6 +92,7 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
     const reportCountData = sql.prepare("SELECT COUNT(DISTINCT reporterID) as count FROM active_reports WHERE guildID = ? AND targetID = ?").get(guild.id, targetMember.id);
     const reportCount = reportCountData.count;
 
+    // --- بناء الإيمبد الأساسي ---
     const embedSuccess = new EmbedBuilder()
         .setTitle("❖ تـم تقديـم البلاغ بنـجـاح")
         .setDescription(
@@ -103,32 +103,32 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
         .setColor(Colors.Red) 
         .setImage("https://i.postimg.cc/NGDJd8LZ/image.png");
 
-    // 1. الرد على المبلغ (مخفي إذا كان سلاش)
+    // =================================================================
+    // 🌟 التعديل المطلوب هنا: التعامل مع APPS vs رسائل عادية 🌟
+    // =================================================================
     if (isSlash) {
+        // 1. رد مخفي للمبلغ (Ephemeral)
         if (interactionOrMessage.replied || interactionOrMessage.deferred) {
             await interactionOrMessage.followUp({ embeds: [embedSuccess], ephemeral: true });
         } else {
             await interactionOrMessage.reply({ embeds: [embedSuccess], ephemeral: true });
         }
+
+        // 2. إرسال نسخة لقناة البلاغات بتذييل "APPS RE"
+        const reportChannel = REPORT_CHANNEL_ID ? guild.channels.cache.get(REPORT_CHANNEL_ID) : null;
+        if (reportChannel) {
+            const publicEmbed = new EmbedBuilder(embedSuccess.toJSON())
+                .setFooter({ text: "APPS RE" }); // ✅ التذييل المطلوب
+
+            await reportChannel.send({ content: `${targetMember}`, embeds: [publicEmbed] });
+        }
+
     } else {
+        // بلاغ عادي (رسالة) -> رد عادي
         await interactionOrMessage.reply({ embeds: [embedSuccess] });
     }
 
-    // 2. إرسال نسخة لقناة البلاغات (بدون منشن @here)
-    const reportChannel = REPORT_CHANNEL_ID ? guild.channels.cache.get(REPORT_CHANNEL_ID) : null;
-    if (isSlash && reportChannel) {
-        const publicEmbed = new EmbedBuilder(embedSuccess.toJSON()) 
-            .setFooter({ text: `مقدم البلاغ: ${reporter.user.tag}`, iconURL: reporter.user.displayAvatarURL() }); 
-
-        try {
-            // نرسل إيمبد فقط، مع منشن للشخص المبلغ عنه فقط لسهولة الوصول له
-            await reportChannel.send({ content: `${targetMember}`, embeds: [publicEmbed] });
-        } catch (e) {
-            console.error("Report Handler Error: Failed to send public copy:", e);
-        }
-    }
-
-    // 3. إرسال لقناة اللوج
+    // --- إرسال للوج (Log) ---
     const logChannel = LOG_CHANNEL_ID ? guild.channels.cache.get(LOG_CHANNEL_ID) : null;
     if (logChannel) {
         const reportLinkText = reportedMessageLink ? `\n**🔗 رابط الرسالة:** [إضغط هنا](${reportedMessageLink})` : "";
@@ -141,11 +141,12 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
                 `${reportLinkText}\n` +
                 `✶ عدد البلاغات: ${reportCount}`
             )
-            .setColor(Colors.Red);
+            .setColor(Colors.Red)
+            .setTimestamp();
         await logChannel.send({ embeds: [logEmbed] });
     }
 
-    // 4. السجن
+    // --- السجن ---
     if (reportCount >= 2) {
         try {
             const jailRole = JAIL_ROLE_ID ? guild.roles.cache.get(JAIL_ROLE_ID) : null;
@@ -168,6 +169,7 @@ async function processReportLogic(client, interactionOrMessage, targetMember, re
                 .setColor(Colors.Blue)
                 .setImage("https://i.postimg.cc/L6TpBZMs/image.png");
 
+            const reportChannel = REPORT_CHANNEL_ID ? guild.channels.cache.get(REPORT_CHANNEL_ID) : null;
             if (reportChannel) {
                 await reportChannel.send({ embeds: [jailEmbed] });
             }
