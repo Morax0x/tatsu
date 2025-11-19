@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType } = require("discord.js");
+const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType, REST, Routes } = require("discord.js");
 const SQLite = require("better-sqlite3");
 const fs = require('fs');
 const path = require('path');
@@ -21,13 +21,11 @@ const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateN
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
 const questsConfig = require('./json/quests-config.json');
 
-// استيراد المولدات
 const { generateSingleAchievementAlert, generateQuestAlert } = require('./generators/achievement-generator.js'); 
 const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./handlers/giveaway-handler.js');
 const { checkUnjailTask } = require('./handlers/report-handler.js'); 
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 
-// 3. إعداد العميل
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -39,7 +37,6 @@ const client = new Client({
     ]
 });
 
-// 4. المتغيرات العامة
 client.commands = new Collection();
 client.cooldowns = new Collection();
 client.talkedRecently = new Map();
@@ -47,6 +44,7 @@ const voiceXPCooldowns = new Map();
 client.recentMessageTimestamps = new Collection(); 
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
 const botToken = process.env.DISCORD_BOT_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID; // تأكد من وجود هذا في Secrets
 
 // ربط المتغيرات
 client.EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -56,7 +54,6 @@ client.EMOJI_WII = '<a:wii:1435572329039007889>';
 client.EMOJI_FASTER = '<a:JaFaster:1435572430042042409>';
 client.EMOJI_PRAY = '<:0Pray:1437067281493524502>';
 client.EMOJI_COOL = '<a:NekoCool:1435572459276337245>';
-// ✅ الإيموجي الجديد للـ XP
 const EMOJI_XP_ANIM = '<a:levelup:1437805366048985290>';
 
 client.generateSingleAchievementAlert = generateSingleAchievementAlert;
@@ -65,7 +62,6 @@ client.sql = sql;
 
 require('./handlers/backup-scheduler.js')(client, sql);
 
-// --- القوالب ---
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
 
@@ -86,10 +82,6 @@ function getWeekStartDateString() {
     return friday.toISOString().split('T')[0];
 }
 
-// ==================================================================
-// 🌟🌟 دوال النظام الأساسية 🌟🌟
-// ==================================================================
-
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
     try {
         const guild = member.guild;
@@ -97,11 +89,9 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
         if (allLevelRoles.length === 0) return; 
         const botMember = guild.members.me;
         if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) return;
-
         let roleToAdd = null; 
         const rolesToRemove = []; 
         let highestRoleFound = false; 
-
         for (const row of allLevelRoles) {
             const role = guild.roles.cache.get(row.roleID);
             if (!role) continue;
@@ -154,42 +144,32 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
     } catch (err) { console.error(`[LevelUp Error]: ${err.message}`); }
 }
 
-// =========================================================================
-// 🛠️ التعديل تم هنا في دالة إرسال التنبيه
-// =========================================================================
 client.sendQuestAnnouncement = async function(guild, member, quest, questType = 'achievement') {
     try {
         const id = `${member.id}-${guild.id}`;
         let notifSettings = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?").get(id);
-
         if (!notifSettings) {
             notifSettings = { id: id, userID: member.id, guildID: guild.id, dailyNotif: 1, weeklyNotif: 1, achievementsNotif: 1, levelNotif: 1 };
             client.setQuestNotif.run(notifSettings);
         }
-
         let sendMention = false;
         if (questType === 'daily' && notifSettings.dailyNotif === 1) sendMention = true;
         if (questType === 'weekly' && notifSettings.weeklyNotif === 1) sendMention = true;
         if (questType === 'achievement' && notifSettings.achievementsNotif === 1) sendMention = true;
-
-        const userIdentifier = sendMention ? `${member}` : `**${member.displayName}**`;
         
         const settings = sql.prepare("SELECT questChannelID FROM settings WHERE guild = ?").get(guild.id);
         if (!settings || !settings.questChannelID) return; 
-
         const channel = guild.channels.cache.get(settings.questChannelID);
         if (!channel) return;
+        
         const perms = channel.permissionsFor(guild.members.me);
         if (!perms || !perms.has(PermissionsBitField.Flags.SendMessages)) return;
-
         const canAttachFiles = perms.has(PermissionsBitField.Flags.AttachFiles);
         const questName = quest.name;
         const reward = quest.reward; 
         let message = '';
         let files = []; 
         let attachmentError = false; 
-        
-        // ✅ 1. تجهيز نص الجائزة بالشكل المطلوب
         const rewardDetails = `\n- **حصـلـت عـلـى:**\n- Mora: \`${reward.mora.toLocaleString()}\` ${client.EMOJI_MORA} | XP: \`${reward.xp.toLocaleString()}\` ${EMOJI_XP_ANIM}`;
 
         if (canAttachFiles) {
@@ -207,36 +187,18 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
                 attachmentError = true; 
             }
         }
-
-        // ✅ 2. إضافة نص الجائزة في نهاية الرسالة
+        
+        const userIdentifier = sendMention ? `${member}` : `**${member.displayName}**`;
         if (questType === 'achievement') {
-            message = [
-                `╭⭒★︰ ${client.EMOJI_WI} ${userIdentifier} ${client.EMOJI_WII}`,
-                `✶ انـرت سمـاء الامـبراطـوريـة بإنجـازك ${client.EMOJI_FASTER}`,
-                `✥ انـجـاز: **${questName}**`,
-                ``,
-                `- فـالتسـجل امبراطوريتـنـا اسمـك بيـن العضـمـاء ${client.EMOJI_PRAY}`,
-                rewardDetails // <-- النص الجديد هنا
-            ].join('\n');
+            message = [`╭⭒★︰ ${client.EMOJI_WI} ${userIdentifier} ${client.EMOJI_WII}`, `✶ انـرت سمـاء الامـبراطـوريـة بإنجـازك ${client.EMOJI_FASTER}`, `✥ انـجـاز: **${questName}**`, ``, `- فـالتسـجل امبراطوريتـنـا اسمـك بيـن العضـمـاء ${client.EMOJI_PRAY}`, rewardDetails].join('\n');
         } else {
             const typeText = questType === 'daily' ? 'يوميـة' : 'اسبوعيـة';
-            message = [
-                `╭⭒★︰ ${client.EMOJI_WI} ${userIdentifier} ${client.EMOJI_WII}`,
-                `✶ اتـممـت مهمـة ${typeText}`,
-                `✥ الـمهـمـة: **${questName}**`,
-                ``,
-                `- لقـد أثبـت انـك احـد اركـان الامبراطـورية ${client.EMOJI_PRAY}`,
-                `- لا يُكلـف مثـلك الا بالمستحيـل ${client.EMOJI_COOL} ~`,
-                rewardDetails // <-- النص الجديد هنا
-            ].join('\n');
+            message = [`╭⭒★︰ ${client.EMOJI_WI} ${userIdentifier} ${client.EMOJI_WII}`, `✶ اتـممـت مهمـة ${typeText}`, `✥ الـمهـمـة: **${questName}**`, ``, `- لقـد أثبـت انـك احـد ارـكـان الامبراطـورية ${client.EMOJI_PRAY}`, `- لا يُكلـف مثـلك الا بالمستحيـل ${client.EMOJI_COOL} ~`, rewardDetails].join('\n');
         }
-        
         await channel.send({ content: message, files: files, allowedMentions: { users: sendMention ? [member.id] : [] } });
-
     } catch (err) { console.error("Error sending quest announcement:", err.message); }
 }
 
-// 4. التحقق من المهام
 client.checkQuests = async function(client, member, stats, questType, dateKey) {
     const questsToCheck = questsConfig[questType] || [];
     for (const quest of questsToCheck) {
@@ -256,8 +218,6 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
                     const oldLevel = levelData.level;
                     levelData.xp -= nextXP;
                     levelData.level += 1;
-                    const newLevel = levelData.level;
-                    // sendLevelUpMessage will be handled by messageCreate usually
                 }
                 client.setLevel.run(levelData);
                 await client.sendQuestAnnouncement(member.guild, member, quest, questType);
@@ -266,7 +226,6 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
     }
 }
 
-// 5. التحقق من الإنجازات
 client.checkAchievements = async function(client, member, levelData, totalStatsData) {
     for (const ach of questsConfig.achievements) {
         let currentProgress = 0;
@@ -315,7 +274,6 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
-// 6. تحديث الإحصائيات
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     if (stat === 'messages') {
         if (!client.recentMessageTimestamps.has(guildID)) client.recentMessageTimestamps.set(guildID, []);
@@ -370,6 +328,10 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
                  let levelData = client.getLevel.get(userID, guildID);
                  if (levelData) await client.checkAchievements(client, member, levelData, totalStats);
             }
+            if (stat === 'water_tree') {
+                 let levelData = client.getLevel.get(userID, guildID);
+                 if (levelData) await client.checkAchievements(client, member, levelData, totalStats);
+            }
         }
     } catch (err) { console.error(`[IncrementQuestStats] Error:`, err.message); }
 }
@@ -406,8 +368,46 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
 }
 
 client.on(Events.ClientReady, async () => { 
-    console.log(`✅ Logged in as ${client.user.username} (Updated Rewards Message)`);
+    console.log(`✅ Logged in as ${client.user.username}`);
     
+    // 🛑🛑🛑 تحديث الأوامر (Register/Refresh Commands) 🛑🛑🛑
+    const rest = new REST({ version: '10' }).setToken(botToken);
+    const commands = [];
+    
+    // تحميل أوامر السلاش والكونتكست من الملفات
+    function getFiles(dir) {
+        const files = fs.readdirSync(dir, { withFileTypes: true });
+        let commandFiles = [];
+        for (const file of files) {
+            if (file.isDirectory()) {
+                commandFiles = [...commandFiles, ...getFiles(path.join(dir, file.name))];
+            } else if (file.name.endsWith('.js')) {
+                commandFiles.push(path.join(dir, file.name));
+            }
+        }
+        return commandFiles;
+    }
+
+    const commandFiles = getFiles(path.join(__dirname, 'commands'));
+    for (const file of commandFiles) {
+        const command = require(file);
+        if (command.data) {
+            commands.push(command.data.toJSON());
+            client.commands.set(command.data.name, command);
+        }
+        if (command.name) {
+             client.commands.set(command.name, command);
+        }
+    }
+
+    try {
+        console.log(`Started refreshing ${commands.length} application (/) commands.`);
+        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+        console.log(`Successfully reloaded application (/) commands.`);
+    } catch (error) {
+        console.error(error);
+    }
+
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
     client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP);");
     client.defaultData = { user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, total_meow_count: 0, boost_count: 0, lastPVP: 0 };
@@ -419,7 +419,7 @@ client.on(Events.ClientReady, async () => {
     client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @replies_sent, @mentions_received, @total_vc_minutes, @total_disboard_bumps);");
     client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
     client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
-    
+
     client.antiRolesCache = new Map();
     await loadRoleSettings(sql, client.antiRolesCache);
     
@@ -437,9 +437,6 @@ client.on(Events.ClientReady, async () => {
     setInterval(() => { const KSA_TIMEZONE = 'Asia/Riyadh'; const nowKSA = new Date().toLocaleString('en-US', { timeZone: KSA_TIMEZONE }); const ksaDate = new Date(nowKSA); const ksaHour = ksaDate.getHours(); if (ksaHour === 0 && lastUpdateSentHour !== ksaHour) { sendDailyMediaUpdate(client, sql); lastUpdateSentHour = ksaHour; } else if (ksaHour !== 0) lastUpdateSentHour = -1; if (ksaHour === 12 && lastWarningSentHour !== ksaHour) { sendStreakWarnings(client, sql); lastWarningSentHour = ksaHour; } else if (ksaHour !== 12) lastWarningSentHour = -1; if (ksaHour === 15 && lastReminderSentHour !== ksaHour) { sendMediaStreakReminders(client, sql); lastReminderSentHour = ksaHour; } else if (ksaHour !== 15) lastReminderSentHour = -1; }, 60000); 
     const lastRandomGiveawayDate = new Map(); setInterval(async () => { const today = new Date().toISOString().split('T')[0]; const now = Date.now(); for (const guild of client.guilds.cache.values()) { const guildID = guild.id; if (lastRandomGiveawayDate.get(guildID) === today) continue; const guildTimestamps = client.recentMessageTimestamps.get(guildID) || []; while (guildTimestamps.length > 0 && guildTimestamps[0] < (now - RECENT_MESSAGE_WINDOW)) { guildTimestamps.shift(); } const totalMessagesLast2Hours = guildTimestamps.length; if (totalMessagesLast2Hours < 200) continue; const roll = Math.random(); if (roll < 0.10) { try { const success = await createRandomDropGiveaway(client, guild); if (success) { lastRandomGiveawayDate.set(guildID, today); console.log(`[DropGA] Success: ${guild.name}`); } } catch (err) { console.error(`[DropGA] Error:`, err.message); } } } }, 30 * 60 * 1000); sendDailyMediaUpdate(client, sql);
 }); 
-
-function loadCommands(dir) { const files = fs.readdirSync(dir); for (const file of files) { const fullPath = path.join(dir, file); const stat = fs.statSync(fullPath); if (stat.isDirectory()) { loadCommands(fullPath); } else if (file.endsWith('.js')) { try { const command = require(fullPath); const commandName = command.data ? command.data.name : command.name; if (commandName && 'execute' in command) { client.commands.set(commandName, command); } else { console.warn(`[CMD Warn] Skipped: ${file}`); } } catch (error) { console.error(`[CMD Error] ${file}:`, error); } } } }
-loadCommands(path.join(__dirname, 'commands')); console.log("[System] Commands Loaded.");
 
 require('./interaction-handler.js')(client, sql);
 
