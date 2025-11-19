@@ -11,7 +11,11 @@ function getWeekStartDateString() {
     const friday = new Date(now.setUTCDate(diff)); friday.setUTCHours(0, 0, 0, 0); return friday.toISOString().split('T')[0];
 }
 function safeMerge(base, defaults) {
-    const result = { ...base }; for (const key in defaults) { if (result[key] === undefined || result[key] === null) result[key] = defaults[key]; } return result;
+    const result = { ...base };
+    for (const key in defaults) {
+        if (result[key] === undefined || result[key] === null) result[key] = defaults[key];
+    }
+    return result;
 }
 
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
@@ -45,7 +49,6 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        // 1. Disboard
         if (message.author.bot) {
             if (message.author.id === DISBOARD_BOT_ID) {
                 if (message.embeds.length > 0 && message.embeds[0].description) {
@@ -53,90 +56,122 @@ module.exports = {
                     if (desc.includes('Bump done') || desc.includes('Bump successful') || desc.includes('بومب')) {
                         const match = desc.match(/<@!?(\d+)>/);
                         if (match && match[1]) {
+                            const userID = match[1];
                             try {
-                                if (client.incrementQuestStats) await client.incrementQuestStats(match[1], message.guild.id, 'disboard_bumps');
-                            } catch (err) {}
+                                const guildID = message.guild.id; const dateStr = getTodayDateString(); const weekStr = getWeekStartDateString();
+                                const dailyID = `${userID}-${guildID}-${dateStr}`; const weeklyID = `${userID}-${guildID}-${weekStr}`; const totalID = `${userID}-${guildID}`;
+                                sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(dailyID, userID, guildID, dateStr);
+                                sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(weeklyID, userID, guildID, weekStr);
+                                sql.prepare(`INSERT INTO user_total_stats (id, userID, guildID, total_disboard_bumps) VALUES (?,?,?,1) ON CONFLICT(id) DO UPDATE SET total_disboard_bumps = total_disboard_bumps + 1`).run(totalID, userID, guildID);
+                                const member = await message.guild.members.fetch(userID).catch(() => null);
+                                if (member && client.checkQuests) { await client.checkQuests(client, member, { disboard_bumps: 1000 }, 'daily', dateStr); await client.checkAchievements(client, member, null, { total_disboard_bumps: 1000 }); }
+                            } catch (err) { console.error(err); }
                         }
                     }
                 }
             }
             return; 
         }
+
         if (!message.guild) return; 
+
+        // 1. الاختصارات (الأولوية القصوى)
+        try {
+            const argsRaw = message.content.trim().split(/ +/);
+            const shortcutWord = argsRaw[0].toLowerCase();
+            const shortcutArgs = argsRaw.slice(1);
+            
+            // البحث في الداتا بيس عن الاختصار في هذه القناة وهذا السيرفر
+            const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
+            
+            if (shortcut) {
+                const command = client.commands.get(shortcut.commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(shortcut.commandName));
+                if (command) {
+                    if (!checkPermissions(message, command)) return;
+                    const cooldownMessage = checkCooldown(message, command);
+                    if (cooldownMessage) { if (typeof cooldownMessage === 'string') return message.reply(cooldownMessage); return; }
+                    try { await command.execute(message, shortcutArgs); } 
+                    catch (error) { console.error(error); message.reply("Error executing shortcut."); }
+                    return; // توقف هنا
+                }
+            }
+        } catch (err) {}
 
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
         let reportSettings = getReportSettings(sql, message.guild.id);
 
-        // 2. بلاغ (بدون بريفكس)
+        // 2. البلاغات
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
-            // حذف الرسالة فوراً
-            await message.delete().catch(() => {});
-
-            // التحقق من محتوى الرسالة
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/);
-                const target = message.mentions.members.first() || message.guild.members.cache.get(args[1]); // args[0] هو كلمة "بلاغ"
-                const reason = args.slice(2).join(" ");
-
-                if (!target || !reason) {
-                    return sendReportError(message, "✶ تـم تقـديـم الـبلاغ بطـريقـة غـير صحـيحـة !", "- طـريـقـة الـتـبـليـغ هـي:\n\n`بلاغ (@منشن او ID الي تبلغ عليه) سبب البلاغ`\n\n- بسبب جهلك بطريقة تقديم البلاغ تم حرمانك من تقديم البلاغات لمدة ساعتين <a:6fuckyou:1401255926807400559>");
-                }
-
+                args.shift(); 
+                await message.delete().catch(() => {});
+                const allowedRoles = sql.prepare("SELECT roleID FROM report_permissions WHERE guildID = ?").all(message.guild.id).map(r => r.roleID);
+                const hasPerm = message.member.permissions.has('Administrator') || allowedRoles.length === 0 || message.member.roles.cache.some(r => allowedRoles.includes(r.id));
+                if (!hasPerm) return sendReportError(message, "❖ ليس لـديـك صلاحيـات", "ليس لديك صلاحيات التبليغ.");
+                const target = message.mentions.members.first() || message.guild.members.cache.get(args[0]);
+                const reason = args.slice(1).join(" ");
+                if (!target || !reason) return sendReportError(message, "✶ خطأ في التنسيق", "`بلاغ @user السبب`");
                 await processReportLogic(client, message, target, reason);
             }
-            return; // أي شيء آخر في قناة البلاغات يحذف ولا يتم التعامل معه
+            return; 
         }
 
-        // 3. الكازينو (بدون بريفكس)
+        // 3. الكازينو
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
             if (command && command.category === "Economy") {
-                if (checkPermissions(message, command)) {
-                    try { await command.execute(message, args); } catch (error) {}
-                }
+                if (!checkPermissions(message, command)) return;
+                try { await command.execute(message, args); } catch (error) {}
             }
-            return; 
+            return;
         }
 
-        // 4. الأوامر العادية
-        let Prefix = "-";
-        try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row) Prefix = row.serverprefix; } catch(e) {}
+        // 4. البريفكس
+        let Prefix = "-"; 
+        try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
             if (command) {
-                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) || checkPermissions(message, command)) {
-                     try { await command.execute(message, args); } catch (error) { message.reply("Error"); }
+                let isAllowed = false;
+                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
+                else {
+                    try {
+                        const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
+                        const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
+                        if (channelPerm || categoryPerm) isAllowed = true;
+                        else { const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, command.name); if (!hasRestrictions) isAllowed = true; }
+                    } catch (err) { isAllowed = true; }
+                }
+                if (isAllowed) {
+                    if (checkPermissions(message, command)) {
+                        const cooldownMsg = checkCooldown(message, command);
+                        if (cooldownMsg) { if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); } 
+                        else { try { await command.execute(message, args); } catch (error) { console.error(error); message.reply("Error"); } }
+                    }
                 }
                 return;
             }
         }
 
-        // 5. التتبع
         try {
             let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
             if (settings && settings.countingChannelID && message.channel.id === settings.countingChannelID) { if(client.incrementQuestStats) await client.incrementQuestStats(message.author.id, message.guild.id, 'counting_channel'); }
             if (message.content.toLowerCase().includes('مياو')) { if(client.incrementQuestStats) await client.incrementQuestStats(message.author.id, message.guild.id, 'meow_count'); }
-            
             const isMediaChannel = sql.prepare("SELECT * FROM media_streak_channels WHERE guildID = ? AND channelID = ?").get(message.guild.id, message.channel.id);
-            if (isMediaChannel) {
-                if (message.attachments.size > 0 || message.content.includes('http')) { await handleMediaStreakMessage(message); return; }
-            }
-
+            if (isMediaChannel) { if (message.attachments.size > 0 || message.content.includes('http')) { await handleMediaStreakMessage(message); return; } }
             await handleStreakMessage(message);
             await trackMessageStats(message, client);
-
-            // XP
             let level = client.getLevel.get(message.author.id, message.guild.id);
             if (!level) level = { ...(client.defaultData || {}), xp: 0, level: 1, totalXP: 0, user: message.author.id, guild: message.guild.id };
             let getXpfromDB = settings?.customXP || 25;
             let getCooldownfromDB = settings?.customCooldown || 60000;
-
             if (!client.talkedRecently.get(message.author.id)) {
                 const buff = calculateBuffMultiplier(message.member, sql);
                 const xp = Math.floor((Math.random() * getXpfromDB + 1) * buff);
