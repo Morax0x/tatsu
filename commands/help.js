@@ -210,21 +210,23 @@ module.exports = {
     name: "help",
     aliases: ["h", "مساعدة", "help","اوامر",],
     category: "Utility",
-    cooldown: 5,
+    cooldown : 5,
     description: "Display Help Commands",
 
-    // ✅ تصحيح الأوتوكومبليت لتجنب الكراش
     async autocomplete(interaction) {
         try {
             const focusedValue = interaction.options.getFocused().toLowerCase();
             const commands = interaction.client.commands;
-            // تصفية الأوامر وإرجاع أول 25 نتيجة فقط
-            const filtered = commands.filter(cmd => cmd.name.includes(focusedValue));
-            await interaction.respond(
-                filtered.map(cmd => ({ name: cmd.name, value: cmd.name })).slice(0, 25)
-            );
+            // تصفية بسيطة للأوتوكومبليت لتجنب الأخطاء
+            const filtered = commands.filter(cmd => 
+                cmd.name.toLowerCase().includes(focusedValue)
+            ).map(cmd => ({
+                name: cmd.name,
+                value: cmd.name
+            }));
+            await interaction.respond(filtered.slice(0, 25));
         } catch (e) {
-            // تجاهل الأخطاء هنا حتى لا يعلق البوت
+            // تجاهل أخطاء الأوتوكومبليت الصامتة
         }
     },
 
