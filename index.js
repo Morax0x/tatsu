@@ -46,7 +46,7 @@ const voiceXPCooldowns = new Map();
 client.recentMessageTimestamps = new Collection(); 
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
 const botToken = process.env.DISCORD_BOT_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID; 
+// (تم حذف CLIENT_ID من هنا لجلبه تلقائياً لاحقاً)
 
 // ربط المتغيرات
 client.EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -56,7 +56,6 @@ client.EMOJI_WII = '<a:wii:1435572329039007889>';
 client.EMOJI_FASTER = '<a:JaFaster:1435572430042042409>';
 client.EMOJI_PRAY = '<:0Pray:1437067281493524502>';
 client.EMOJI_COOL = '<a:NekoCool:1435572459276337245>';
-// ✅ الإيموجي الجديد للـ XP (مهم جداً لظهوره في الرسالة)
 const EMOJI_XP_ANIM = '<a:levelup:1437805366048985290>';
 
 client.generateSingleAchievementAlert = generateSingleAchievementAlert;
@@ -152,9 +151,7 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
     } catch (err) { console.error(`[LevelUp Error]: ${err.message}`); }
 }
 
-// =========================================================================
-// 🛠️ دالة الإرسال (محدثة بالتنسيق الجديد)
-// =========================================================================
+// دالة الإرسال
 client.sendQuestAnnouncement = async function(guild, member, quest, questType = 'achievement') {
     try {
         const id = `${member.id}-${guild.id}`;
@@ -186,8 +183,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
         let message = '';
         let files = []; 
         let attachmentError = false; 
-
-        // ✅ 1. تجهيز نص الجائزة بالتنسيق المطلوب (خلفية سوداء للأرقام فقط)
+        
         const rewardDetails = `\n- **حصـلـت عـلـى:**\nMora: \`${reward.mora.toLocaleString()}\` ${client.EMOJI_MORA} | XP: \`${reward.xp.toLocaleString()}\` ${EMOJI_XP_ANIM}`;
 
         if (canAttachFiles) {
@@ -206,7 +202,6 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
             }
         }
 
-        // ✅ 2. إضافة نص الجائزة في نهاية الرسالة
         if (questType === 'achievement') {
             message = [
                 `╭⭒★︰ ${client.EMOJI_WI} ${userIdentifier} ${client.EMOJI_WII}`,
@@ -214,7 +209,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
                 `✥ انـجـاز: **${questName}**`,
                 ``,
                 `- فـالتسـجل امبراطوريتـنـا اسمـك بيـن العضـمـاء ${client.EMOJI_PRAY}`,
-                rewardDetails // <-- هنا يظهر النص الجديد
+                rewardDetails
             ].join('\n');
         } else {
             const typeText = questType === 'daily' ? 'يوميـة' : 'اسبوعيـة';
@@ -225,7 +220,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
                 ``,
                 `- لقـد أثبـت انـك احـد اركـان الامبراطـورية ${client.EMOJI_PRAY}`,
                 `- لا يُكلـف مثـلك الا بالمستحيـل ${client.EMOJI_COOL} ~`,
-                rewardDetails // <-- هنا يظهر النص الجديد
+                rewardDetails
             ].join('\n');
         }
         
@@ -368,6 +363,10 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
                  let levelData = client.getLevel.get(userID, guildID);
                  if (levelData) await client.checkAchievements(client, member, levelData, totalStats);
             }
+            if (stat === 'water_tree') {
+                 let levelData = client.getLevel.get(userID, guildID);
+                 if (levelData) await client.checkAchievements(client, member, levelData, totalStats);
+            }
         }
     } catch (err) { console.error(`[IncrementQuestStats] Error:`, err.message); }
 }
@@ -404,8 +403,9 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
 }
 
 client.on(Events.ClientReady, async () => { 
-    console.log(`✅ Logged in as ${client.user.username} (Formatted Rewards)`);
+    console.log(`✅ Logged in as ${client.user.username} (Final Fixes)`);
     
+    // 🌟🌟🌟 تسجيل الأوامر (الحل لمشكلة عدم ظهور الأوامر) 🌟🌟🌟
     const rest = new REST({ version: '10' }).setToken(botToken);
     const commands = [];
     function getFiles(dir) {
@@ -423,7 +423,13 @@ client.on(Events.ClientReady, async () => {
         if (command.data) { commands.push(command.data.toJSON()); client.commands.set(command.data.name, command); }
         if (command.name) { client.commands.set(command.name, command); }
     }
-    try { await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands }); console.log(`Successfully reloaded application (/) commands.`); } catch (error) { console.error(error); }
+    
+    // جلب ID البوت تلقائياً وتسجيل الأوامر
+    try { 
+        const CLIENT_ID = client.user.id;
+        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands }); 
+        console.log(`Successfully reloaded application (/) commands.`); 
+    } catch (error) { console.error(error); }
 
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
     client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP);");
@@ -441,7 +447,7 @@ client.on(Events.ClientReady, async () => {
 
     const calculateInterest = () => {
         const now = Date.now();
-        const INTEREST_RATE = 0.005; // 0.50%
+        const INTEREST_RATE = 0.0005; // 0.05%
         const COOLDOWN = 24 * 60 * 60 * 1000; 
         const allUsers = sql.prepare("SELECT * FROM levels WHERE bank > 0").all();
         for (const user of allUsers) {
