@@ -3,14 +3,10 @@ const { PermissionsBitField, EmbedBuilder, Colors } = require("discord.js");
 const DAY_MS = 24 * 60 * 60 * 1000;
 const KSA_TIMEZONE = 'Asia/Riyadh';
 
-// --- (إيموجيات مطلوبة) ---
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
 const EMOJI_SHIELD = '<:Shield:1437804676224516146>';
 
-// قائمة الفواصل لتنظيف الاسم عند التحديث
 const ALLOWED_SEPARATORS_REGEX = ['\\|', '•', '»', '✦', '★', '❖', '✧', '✬', '〢', '┇'];
-
-// --- دوال المساعدة ---
 
 function getKSADateString(dateObject) {
     return new Date(dateObject).toLocaleString('en-CA', {
@@ -39,19 +35,15 @@ function formatTime(ms) {
     return "أقل من دقيقة";
 }
 
-// --- دوال الحسابات (Buffs) ---
-
 function calculateBuffMultiplier(member, sql) {
     if (!sql || typeof sql.prepare !== 'function') return 1.0;
     
     const getUserBuffs = sql.prepare("SELECT * FROM user_buffs WHERE userID = ? AND guildID = ? AND expiresAt > ? AND buffType = 'xp'");
     let totalPercent = 0.0;
     
-    // بوف نهاية الأسبوع (XP)
     const day = new Date().getUTCDay();
     if (day === 5 || day === 6 || day === 0) totalPercent += 0.10;
     
-    // بوف الرتب
     let highestRoleBuff = 0;
     const userRoles = member.roles.cache.map(r => r.id);
     if (userRoles.length > 0) {
@@ -63,7 +55,6 @@ function calculateBuffMultiplier(member, sql) {
     }
     totalPercent += (highestRoleBuff / 100);
     
-    // بوف العناصر (Items)
     let itemBuffTotal = 0;
     const userBuffs = getUserBuffs.all(member.id, member.guild.id, Date.now());
     for (const buff of userBuffs) {
@@ -79,8 +70,7 @@ function calculateMoraBuff(member, sql) {
     if (!sql || typeof sql.prepare !== 'function') return 1.0;
     let totalBuffPercent = 0;
 
-    // بوف نهاية الأسبوع (Mora)
-    const day = new Date().getUTCDay(); // (0=الأحد, 5=الجمعة, 6=السبت)
+    const day = new Date().getUTCDay(); 
     if (day === 5 || day === 6 || day === 0) {
         totalBuffPercent += 10; 
     }
@@ -109,8 +99,6 @@ function calculateMoraBuff(member, sql) {
 
     return finalMultiplier;
 }
-
-// --- تحديث الاسم (Nickname) ---
 
 async function updateNickname(member, sql) {
     if (!member) return;
@@ -156,8 +144,6 @@ async function updateNickname(member, sql) {
         }
     }
 }
-
-// --- فحص الستريك العادي ---
 
 async function checkDailyStreaks(client, sql) {
     console.log("[Streak] 🔄 بدء الفحص اليومي للستريك...");
@@ -231,8 +217,6 @@ async function checkDailyStreaks(client, sql) {
     }
     console.log(`[Streak] ✅ اكتمل الفحص اليومي للستريك. (تم فحص ${allStreaks.length} عضو)`);
 }
-
-// --- معالج رسائل الستريك العادي ---
 
 async function handleStreakMessage(message) {
     const sql = message.client.sql;
@@ -314,10 +298,6 @@ async function handleStreakMessage(message) {
         }
     }
 }
-
-// ======================================================================
-// 🎥🎥  نظام ستريك الميديا (المطور)  🎥🎥
-// ======================================================================
 
 async function handleMediaStreakMessage(message) {
     const sql = message.client.sql;
