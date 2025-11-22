@@ -31,6 +31,18 @@ function formatTime(ms) {
     return `${mm}:${ss}`;
 }
 
+// دالة مساعدة لخصم المبلغ من السارق (كاش أولاً ثم بنك)
+function deductFromRobber(data, amount) {
+    if (data.mora >= amount) {
+        data.mora -= amount;
+    } else {
+        const remaining = amount - data.mora;
+        data.mora = 0; // تصفير الكاش
+        data.bank -= remaining; // خصم الباقي من البنك
+    }
+    return data;
+}
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('سرقة')
@@ -116,9 +128,12 @@ module.exports = {
         const victimMora = victimData.mora || 0;
         const victimBank = victimData.bank || 0;
         const robberMora = robberData.mora || 0;
+        const robberBank = robberData.bank || 0;
+        const robberTotal = robberMora + robberBank; // مجموع ثروة السارق
 
-        if (robberMora < MIN_REQUIRED_CASH) {
-             return reply(`يجب أن تمتلك ${MIN_REQUIRED_CASH.toLocaleString()} ${EMOJI_MORA} كاش على الأقل لتغطية الغرامة إذا فشلت.`);
+        // تعديل الشرط: التحقق من المجموع (كاش + بنك)
+        if (robberTotal < MIN_REQUIRED_CASH) {
+             return reply(`يجب أن تمتلك مجموع **${MIN_REQUIRED_CASH.toLocaleString()}** ${EMOJI_MORA} (كاش أو بنك) لتغطية الغرامة إذا فشلت.`);
         }
 
         if (victimMora < MIN_REQUIRED_CASH && victimBank < MIN_REQUIRED_CASH) {
@@ -148,7 +163,8 @@ module.exports = {
             victimPoolAmount = victimMora;
         }
 
-        const robberCap = Math.floor(robberMora * ROBBER_FINE_PERCENT);
+        // حساب الحد الأقصى بناءً على إجمالي ثروة السارق
+        const robberCap = Math.floor(robberTotal * ROBBER_FINE_PERCENT);
 
         let victimCap;
         if (targetPool === 'bank') {
@@ -164,8 +180,11 @@ module.exports = {
 
         robberData.lastRob = now;
 
+        // --- التحقق من الحارس (Guard) ---
         if (victimData.hasGuard > 0) {
-            robberData.mora -= amountToSteal;
+            // استخدام دالة الخصم الذكي
+            deductFromRobber(robberData, amountToSteal);
+            
             victimData.mora += amountToSteal;
             victimData.hasGuard -= 1;
             victimData.guardExpires = 0;
@@ -180,7 +199,7 @@ module.exports = {
                 .setDescription(
                     `✬ حـاولـت الـسطـو عـلى ممتـلكـات ${victim}\n <:thief:1436331309961187488>` +
                     `✬ ولـكـن الحـارس الـشخـصـي قبـض عليك وجـلدك <:catla:1437335118153781360>\n\n` +
-                    `✬ تـم تغريـمك **${amountToSteal.toLocaleString()}** ${EMOJI_MORA} واعطـائـها للضحـية <:mirkk:1435648219488190525>`
+                    `✬ تـم تغريـمك **${amountToSteal.toLocaleString()}** ${EMOJI_MORA} (من رصيدك) واعطـائـها للضحـية <:mirkk:1435648219488190525>`
                 );
 
             return reply({ embeds: [embed] });
@@ -240,14 +259,15 @@ module.exports = {
                 await i.update({ embeds: [winEmbed], components: [] });
 
             } else {
-                robberData.mora -= amountToSteal;
+                // استخدام دالة الخصم الذكي عند الخسارة
+                deductFromRobber(robberData, amountToSteal);
                 victimData.mora += amountToSteal;
 
                 const loseEmbed = new EmbedBuilder()
                     .setTitle('💥 بــــووم !')
                     .setColor(Colors.Red)
                     .setImage('https://i.postimg.cc/HkdZWrG5/boom.gif')
-                    .setDescription(`لقد اخترت الباب الخطأ وانفجرت القنبلة!\n\nفشلت السرقة، وتم تغريمك **${amountToSteal.toLocaleString()}** ${EMOJI_MORA} وإعطاؤها للضحية.`);
+                    .setDescription(`لقد اخترت الباب الخطأ وانفجرت القنبلة!\n\nفشلت السرقة، وتم تغريمك **${amountToSteal.toLocaleString()}** ${EMOJI_MORA} (من رصيدك) وإعطاؤها للضحية.`);
                 await i.update({ embeds: [loseEmbed], components: [] });
             }
             setScore.run(robberData);
@@ -256,8 +276,10 @@ module.exports = {
 
         collector.on('end', (collected, reason) => {
             if (reason === 'time') {
-                robberData.mora -= amountToSteal;
+                // استخدام دالة الخصم الذكي عند انتهاء الوقت
+                deductFromRobber(robberData, amountToSteal);
                 victimData.mora += amountToSteal;
+                
                 setScore.run(robberData);
                 setScore.run(victimData);
 
@@ -265,7 +287,7 @@ module.exports = {
                     .setTitle('⏰ انتهى الوقت!')
                     .setColor(Colors.Red)
                     .setImage('https://i.postimg.cc/Hx6tZnJv/nskht-mn-ambratwryt-alanmy.jpg')
-                    .setDescription(`لقد ترددت طويلاً وتم القبض عليك!\n\nفشلت السرقة، وتم تغريمك **${amountToSteal.toLocaleString()}** ${EMOJI_MORA} وإعطاؤها للضحية.`);
+                    .setDescription(`لقد ترددت طويلاً وتم القبض عليك!\n\nفشلت السرقة، وتم تغريمك **${amountToSteal.toLocaleString()}** ${EMOJI_MORA} (من رصيدك) وإعطاؤها للضحية.`);
 
                 msg.edit({ embeds: [timeEmbed], components: [] });
             }
