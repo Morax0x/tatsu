@@ -8,12 +8,13 @@ const sql = new SQLite('./mainDB.sqlite');
 sql.pragma('journal_mode = WAL');
 
 try {
+    // تأكد من وجود هذا الملف أو احذفه اذا كان مدمجاً
     const { setupDatabase } = require("./database-setup.js");
     setupDatabase(sql);
 } catch (err) {
     console.error("!!! Database Setup Fatal Error !!!");
     console.error(err);
-    process.exit(1);
+    // process.exit(1); // يمكن تفعيلها اذا كنت تريد ايقاف البوت عند الخطأ
 }
 
 // 2. استيراد المعالجات
@@ -46,7 +47,6 @@ const voiceXPCooldowns = new Map();
 client.recentMessageTimestamps = new Collection(); 
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
 const botToken = process.env.DISCORD_BOT_TOKEN;
-// (تم حذف CLIENT_ID من هنا لجلبه تلقائياً لاحقاً)
 
 // ربط المتغيرات
 client.EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -62,6 +62,7 @@ client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
 client.sql = sql;
 
+// تشغيل نظام النسخ الاحتياطي المطور
 require('./handlers/backup-scheduler.js')(client, sql);
 
 // --- القوالب ---
@@ -151,7 +152,6 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
     } catch (err) { console.error(`[LevelUp Error]: ${err.message}`); }
 }
 
-// دالة الإرسال
 client.sendQuestAnnouncement = async function(guild, member, quest, questType = 'achievement') {
     try {
         const id = `${member.id}-${guild.id}`;
@@ -168,7 +168,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
         if (questType === 'achievement' && notifSettings.achievementsNotif === 1) sendMention = true;
 
         const userIdentifier = sendMention ? `${member}` : `**${member.displayName}**`;
-        
+         
         const settings = sql.prepare("SELECT questChannelID FROM settings WHERE guild = ?").get(guild.id);
         if (!settings || !settings.questChannelID) return; 
 
@@ -183,7 +183,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
         let message = '';
         let files = []; 
         let attachmentError = false; 
-        
+         
         const rewardDetails = `\n- **حصـلـت عـلـى:**\nMora: \`${reward.mora.toLocaleString()}\` ${client.EMOJI_MORA} | XP: \`${reward.xp.toLocaleString()}\` ${EMOJI_XP_ANIM}`;
 
         if (canAttachFiles) {
@@ -223,13 +223,12 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
                 rewardDetails
             ].join('\n');
         }
-        
+         
         await channel.send({ content: message, files: files, allowedMentions: { users: sendMention ? [member.id] : [] } });
 
     } catch (err) { console.error("Error sending quest announcement:", err.message); }
 }
 
-// 4. التحقق من المهام
 client.checkQuests = async function(client, member, stats, questType, dateKey) {
     const questsToCheck = questsConfig[questType] || [];
     for (const quest of questsToCheck) {
@@ -257,13 +256,12 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
     }
 }
 
-// 5. التحقق من الإنجازات
 client.checkAchievements = async function(client, member, levelData, totalStatsData) {
     for (const ach of questsConfig.achievements) {
         let currentProgress = 0;
         const streakData = sql.prepare("SELECT * FROM streaks WHERE guildID = ? AND userID = ?").get(member.id, member.guild.id);
         const mediaStreakData = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND userID = ?").get(member.guild.id, member.id);
-        
+         
         if (!totalStatsData) totalStatsData = client.getTotalStats.get(`${member.id}-${member.guild.id}`) || {};
         totalStatsData = client.safeMerge(totalStatsData, defaultTotalStats); 
 
@@ -316,7 +314,6 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
-// 6. تحديث الإحصائيات
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     if (stat === 'messages') {
         if (!client.recentMessageTimestamps.has(guildID)) client.recentMessageTimestamps.set(guildID, []);
@@ -343,10 +340,10 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (dailyStats.hasOwnProperty(stat)) dailyStats[stat] = (dailyStats[stat] || 0) + amount;
         if (weeklyStats.hasOwnProperty(stat)) weeklyStats[stat] = (weeklyStats[stat] || 0) + amount;
         if (stat === 'disboard_bumps') totalStats.total_disboard_bumps = (totalStats.total_disboard_bumps || 0) + amount;
-        
+         
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
-        
+         
         client.setTotalStats.run({
             id: totalStatsId, userID, guildID,
             total_messages: totalStats.total_messages, total_images: totalStats.total_images, total_stickers: totalStats.total_stickers,
@@ -402,10 +399,57 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
     } catch (err) { console.error(`[checkRoleAchievement] Error:`, err.message); }
 }
 
+// --------------------------------------------------------
+// 📈 دالة تحديث السوق (النسخة الجديدة)
+// --------------------------------------------------------
+function updateMarketPrices() {
+    try {
+        const allItems = sql.prepare("SELECT * FROM market_items").all();
+        if (allItems.length === 0) return;
+
+        const updateStmt = sql.prepare(`UPDATE market_items SET currentPrice = ?, lastChangePercent = ?, lastChange = ? WHERE id = ?`);
+
+        const transaction = sql.transaction(() => {
+            for (const item of allItems) {
+                const oldPrice = item.currentPrice;
+                let changePercent = 0;
+                
+                const eventRoll = Math.random(); 
+
+                if (eventRoll < 0.05) { 
+                    changePercent = -1 * (Math.random() * 0.15 + 0.10); 
+                } else if (eventRoll > 0.95) { 
+                    changePercent = (Math.random() * 0.15 + 0.10); 
+                } else {
+                    changePercent = (Math.random() * 0.10) - 0.05; 
+                }
+
+                if (oldPrice > 10000 && changePercent > 0) {
+                    changePercent = changePercent / 3; 
+                }
+
+                let newPrice = Math.floor(oldPrice * (1 + changePercent));
+
+                if (newPrice > 20000) newPrice = 20000; 
+                if (newPrice < 10) newPrice = 10;       
+
+                const changeAmount = newPrice - oldPrice;
+                const finalPercent = ((changeAmount / oldPrice) * 100).toFixed(2);
+
+                updateStmt.run(newPrice, finalPercent, changeAmount, item.id);
+            }
+        });
+        transaction();
+        console.log(`[Market] Updated prices for ${allItems.length} items (Simulation Active).`);
+    } catch (err) {
+        console.error("[Market] Error updating prices:", err.message);
+    }
+}
+
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username} (Final Fixes)`);
     
-    // 🌟🌟🌟 تسجيل الأوامر (الحل لمشكلة عدم ظهور الأوامر) 🌟🌟🌟
+    // 🌟🌟🌟 تسجيل الأوامر 🌟🌟🌟
     const rest = new REST({ version: '10' }).setToken(botToken);
     const commands = [];
     function getFiles(dir) {
@@ -424,7 +468,6 @@ client.on(Events.ClientReady, async () => {
         if (command.name) { client.commands.set(command.name, command); }
     }
     
-    // جلب ID البوت تلقائياً وتسجيل الأوامر
     try { 
         const CLIENT_ID = client.user.id;
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands }); 
@@ -466,17 +509,43 @@ client.on(Events.ClientReady, async () => {
     calculateInterest();
 
     const checkLoanPayments = async () => {}; checkLoanPayments(); setInterval(checkLoanPayments, 60 * 60 * 1000);
-    function updateMarketPrices() { try { const allItems = sql.prepare("SELECT * FROM market_items").all(); if (allItems.length === 0) return; const updateStmt = sql.prepare(`UPDATE market_items SET currentPrice = ?, lastChangePercent = ?, lastChange = ? WHERE id = ?`); const transaction = sql.transaction(() => { for (const item of allItems) { const minChange = -0.05; const maxChange = 0.10; const changePercent = Math.random() * (maxChange - minChange) + minChange; const oldPrice = item.currentPrice; let newPrice = Math.max(10, Math.floor(oldPrice * (1 + changePercent))); const changeAmount = newPrice - oldPrice; updateStmt.run(newPrice, (changePercent * 100).toFixed(2), changeAmount, item.id); } }); transaction(); } catch (err) { console.error("[Market] Error:", err.message); } }
-    updateMarketPrices(); setInterval(updateMarketPrices, 60 * 60 * 1000);
+    
+    // تشغيل نظام السوق
+    updateMarketPrices(); 
+    setInterval(updateMarketPrices, 60 * 60 * 1000);
 
     const STAT_TICK_RATE = 60000; const MINUTES_PER_TICK = 1; const SECONDS_PER_TICK = 60; 
     setInterval(() => { const dateStr = getTodayDateString(); const weekStartDateStr = getWeekStartDateString(); client.guilds.cache.forEach(guild => { const settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id); if (!settings) return; const giveVoiceXP = settings.voiceXP > 0 && settings.voiceCooldown > 0; const voiceXP = settings.voiceXP || 0; const voiceCooldown = settings.voiceCooldown || 60000; guild.channels.cache.filter(c => c.type === ChannelType.GuildVoice).forEach(channel => { channel.members.forEach(async (member) => { if (member.user.bot || member.voice.channelID === guild.afkChannelId) return; const dailyStatsId = `${member.id}-${guild.id}-${dateStr}`; const weeklyStatsId = `${member.id}-${guild.id}-${weekStartDateStr}`; const totalStatsId = `${member.id}-${guild.id}`; let level = client.getLevel.get(member.id, guild.id); if (!level) { level = { ...client.defaultData, user: member.id, guild: guild.id }; } let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID: member.id, guildID: guild.id, date: dateStr }; let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID: member.id, guildID: guild.id, weekStartDate: weekStartDateStr }; let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID: member.id, guildID: guild.id }; dailyStats = client.safeMerge(dailyStats, defaultDailyStats); weeklyStats = client.safeMerge(weeklyStats, defaultDailyStats); totalStats = client.safeMerge(totalStats, defaultTotalStats); let statsChanged = false; if (!member.voice.selfMute && !member.voice.selfDeaf) { dailyStats.vc_minutes += MINUTES_PER_TICK; weeklyStats.vc_minutes += MINUTES_PER_TICK; totalStats.total_vc_minutes += MINUTES_PER_TICK; level.totalVCTime += SECONDS_PER_TICK; statsChanged = true; } if (member.voice.streaming) { dailyStats.streaming_minutes += MINUTES_PER_TICK; weeklyStats.streaming_minutes += MINUTES_PER_TICK; statsChanged = true; } if (giveVoiceXP && !member.voice.selfMMute && !member.voice.selfDeaf) { const cooldownKey = `${guild.id}-${member.id}`; const now = Date.now(); const lastGain = voiceXPCooldowns.get(cooldownKey); if (!lastGain || (now - lastGain) >= voiceCooldown) { const baseXP = voiceXP; const buffMultiplier = calculateBuffMultiplier(member, sql); const finalXP = Math.floor(baseXP * buffMultiplier); level.xp += finalXP; level.totalXP += finalXP; statsChanged = true; voiceXPCooldowns.set(cooldownKey, now); } } if (statsChanged) { const nextXP = 5 * (level.level ** 2) + (50 * level.level) + 100; if (level.xp >= nextXP) { const oldLevel = level.level; level.xp -= nextXP; level.level += 1; const newLevel = level.level; client.sendLevelUpMessage(null, member, newLevel, oldLevel, level).catch(console.error); } } if (statsChanged) { client.setDailyStats.run(dailyStats); client.setWeeklyStats.run(weeklyStats); client.setTotalStats.run({ id: totalStatsId, userID: member.id, guildID: guild.id, total_messages: totalStats.total_messages, total_images: totalStats.total_images, total_stickers: totalStats.total_stickers, total_reactions_added: totalStats.total_reactions_added, replies_sent: totalStats.total_replies_sent, mentions_received: totalStats.total_mentions_received, total_vc_minutes: totalStats.total_vc_minutes, total_disboard_bumps: totalStats.total_disboard_bumps }); client.setLevel.run(level); await client.checkQuests(client, member, dailyStats, 'daily', dateStr); await client.checkQuests(client, member, weeklyStats, 'weekly', weekStartDateStr); await client.checkAchievements(client, member, level, totalStats); } }); }); }); }, STAT_TICK_RATE); 
+    
+    // المجدولات الزمنية
     checkDailyStreaks(client, sql); setInterval(() => checkDailyStreaks(client, sql), 3600000); 
     checkDailyMediaStreaks(client, sql); setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); 
     checkUnjailTask(client); setInterval(() => checkUnjailTask(client), 5 * 60 * 1000); 
+    
     let lastReminderSentHour = -1; let lastUpdateSentHour = -1; let lastWarningSentHour = -1; 
-    setInterval(() => { const KSA_TIMEZONE = 'Asia/Riyadh'; const nowKSA = new Date().toLocaleString('en-US', { timeZone: KSA_TIMEZONE }); const ksaDate = new Date(nowKSA); const ksaHour = ksaDate.getHours(); if (ksaHour === 0 && lastUpdateSentHour !== ksaHour) { sendDailyMediaUpdate(client, sql); lastUpdateSentHour = ksaHour; } else if (ksaHour !== 0) lastUpdateSentHour = -1; if (ksaHour === 12 && lastWarningSentHour !== ksaHour) { sendStreakWarnings(client, sql); lastWarningSentHour = ksaHour; } else if (ksaHour !== 12) lastWarningSentHour = -1; if (ksaHour === 15 && lastReminderSentHour !== ksaHour) { sendMediaStreakReminders(client, sql); lastReminderSentHour = ksaHour; } else if (ksaHour !== 15) lastReminderSentHour = -1; }, 60000); 
-    const lastRandomGiveawayDate = new Map(); setInterval(async () => { const today = new Date().toISOString().split('T')[0]; const now = Date.now(); for (const guild of client.guilds.cache.values()) { const guildID = guild.id; if (lastRandomGiveawayDate.get(guildID) === today) continue; const guildTimestamps = client.recentMessageTimestamps.get(guildID) || []; while (guildTimestamps.length > 0 && guildTimestamps[0] < (now - RECENT_MESSAGE_WINDOW)) { guildTimestamps.shift(); } const totalMessagesLast2Hours = guildTimestamps.length; if (totalMessagesLast2Hours < 200) continue; const roll = Math.random(); if (roll < 0.10) { try { const success = await createRandomDropGiveaway(client, guild); if (success) { lastRandomGiveawayDate.set(guildID, today); console.log(`[DropGA] Success: ${guild.name}`); } } catch (err) { console.error(`[DropGA] Error:`, err.message); } } } }, 30 * 60 * 1000); sendDailyMediaUpdate(client, sql);
+    setInterval(() => { 
+        const KSA_TIMEZONE = 'Asia/Riyadh'; 
+        const nowKSA = new Date().toLocaleString('en-US', { timeZone: KSA_TIMEZONE }); 
+        const ksaDate = new Date(nowKSA); 
+        const ksaHour = ksaDate.getHours(); 
+        if (ksaHour === 0 && lastUpdateSentHour !== ksaHour) { 
+            sendDailyMediaUpdate(client, sql); 
+            lastUpdateSentHour = ksaHour; 
+        } else if (ksaHour !== 0) lastUpdateSentHour = -1; 
+        if (ksaHour === 12 && lastWarningSentHour !== ksaHour) { 
+            sendStreakWarnings(client, sql); 
+            lastWarningSentHour = ksaHour; 
+        } else if (ksaHour !== 12) lastWarningSentHour = -1; 
+        if (ksaHour === 15 && lastReminderSentHour !== ksaHour) { 
+            sendMediaStreakReminders(client, sql); 
+            lastReminderSentHour = ksaHour; 
+        } else if (ksaHour !== 15) lastReminderSentHour = -1; 
+    }, 60000); 
+    
+    const lastRandomGiveawayDate = new Map(); setInterval(async () => { const today = new Date().toISOString().split('T')[0]; const now = Date.now(); for (const guild of client.guilds.cache.values()) { const guildID = guild.id; if (lastRandomGiveawayDate.get(guildID) === today) continue; const guildTimestamps = client.recentMessageTimestamps.get(guildID) || []; while (guildTimestamps.length > 0 && guildTimestamps[0] < (now - RECENT_MESSAGE_WINDOW)) { guildTimestamps.shift(); } const totalMessagesLast2Hours = guildTimestamps.length; if (totalMessagesLast2Hours < 200) continue; const roll = Math.random(); if (roll < 0.10) { try { const success = await createRandomDropGiveaway(client, guild); if (success) { lastRandomGiveawayDate.set(guildID, today); console.log(`[DropGA] Success: ${guild.name}`); } } catch (err) { console.error(`[DropGA] Error:`, err.message); } } } }, 30 * 60 * 1000); 
+    
+    // تشغيل التحديث فوراً
+    sendDailyMediaUpdate(client, sql);
 }); 
 
 function loadCommands(dir) { const files = fs.readdirSync(dir); for (const file of files) { const fullPath = path.join(dir, file); const stat = fs.statSync(fullPath); if (stat.isDirectory()) { loadCommands(fullPath); } else if (file.endsWith('.js')) { try { const command = require(fullPath); const commandName = command.data ? command.data.name : command.name; if (commandName && 'execute' in command) { client.commands.set(commandName, command); } else { console.warn(`[CMD Warn] Skipped: ${file}`); } } catch (error) { console.error(`[CMD Error] ${file}:`, error); } } } }
