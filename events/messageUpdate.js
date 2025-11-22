@@ -1,6 +1,6 @@
 const { Events } = require("discord.js");
 
-// قائمة مؤقتة لتخزين من تم حسابهم (لمنع التكرار)
+// قائمة مؤقتة لمنع التكرار عند التعديل السريع
 const treeCooldowns = new Set();
 
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
@@ -20,6 +20,7 @@ module.exports = {
 
         try {
             const settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(newMessage.guild.id);
+            // تأكد من إعداد هذه القيم في الداتابيس (treeBotID و treeChannelID)
             if (!settings || !settings.treeBotID || !settings.treeChannelID) return;
 
             if (newMessage.channel.id !== settings.treeChannelID) return;
@@ -32,11 +33,12 @@ module.exports = {
                 content = newMessage.content || "";
             }
 
+            // البحث عن أول منشن في النص
             const match = content.match(/<@!?(\d+)>/);
             if (match && match[1]) {
                 const userID = match[1];
                 
-                // 🛑 الفلتر الجديد: إذا كان الشخص حسبنا له قبل شوي، نطلع
+                // 🛑 منع التكرار: إذا تم احتساب نقطة لنفس الشخص خلال الدقيقة الماضية
                 if (treeCooldowns.has(userID)) return;
                 if (userID === client.user.id || userID === settings.treeBotID) return;
 
@@ -53,12 +55,16 @@ module.exports = {
                 sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, water_tree) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET water_tree = water_tree + 1`).run(dailyID, userID, guildID, dateStr);
                 sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, water_tree) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET water_tree = water_tree + 1`).run(weeklyID, userID, guildID, weekStr);
 
-                console.log(`[Tree] Water counted for ${userID} (Cooldown started)`);
+                console.log(`[Tree] Water counted for ${userID}`);
 
                 const member = await newMessage.guild.members.fetch(userID).catch(() => null);
                 if (member && client.checkQuests) {
-                    await client.checkQuests(client, member, { water_tree: 1000 }, 'daily', dateStr);
-                    await client.checkQuests(client, member, { water_tree: 1000 }, 'weekly', weekStr);
+                    // إرسال البيانات الجديدة المحدثة للتحقق من المهام
+                    const updatedDaily = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?").get(dailyID);
+                    const updatedWeekly = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?").get(weeklyID);
+                    
+                    if(updatedDaily) await client.checkQuests(client, member, updatedDaily, 'daily', dateStr);
+                    if(updatedWeekly) await client.checkQuests(client, member, updatedWeekly, 'weekly', weekStr);
                 }
             }
         } catch (err) { console.error(err); }
