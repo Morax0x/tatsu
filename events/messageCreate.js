@@ -1,4 +1,4 @@
-const { Events } = require("discord.js");
+const { Events, PermissionsBitField } = require("discord.js"); // ✅ تم إضافة PermissionsBitField هنا
 const { handleStreakMessage, handleMediaStreakMessage, calculateBuffMultiplier } = require("../streak-handler.js");
 const { checkPermissions, checkCooldown } = require("../permission-handler.js");
 const { processReportLogic, sendReportError, getReportSettings } = require("../handlers/report-handler.js");
@@ -17,18 +17,12 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        // ---------------------------------------------------------
-        // 🟢 نظام البمب (Disboard Bump) - الدقيق 100%
-        // ---------------------------------------------------------
+        // 🟢 نظام البمب (Disboard Bump)
         if (message.author.id === DISBOARD_BOT_ID) {
             let bumperID = null;
-
-            // الطريقة 1: عبر بيانات التفاعل (Interaction) - هذه الأضمن لأوامر السلاش
             if (message.interaction && message.interaction.commandName === 'bump') {
                 bumperID = message.interaction.user.id;
             }
-            
-            // الطريقة 2: عبر وصف الإيمبد (احتياطية)
             if (!bumperID && message.embeds.length > 0) {
                 const desc = message.embeds[0].description || "";
                 if (desc.includes('Bump done') || desc.includes('Bump successful') || desc.includes('بومب')) {
@@ -52,7 +46,6 @@ module.exports = {
 
                     message.react('👊').catch(() => {});
 
-                    // التحقق من المهام
                     const member = await message.guild.members.fetch(bumperID).catch(() => null);
                     if (member && client.checkQuests) {
                         const updatedDaily = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?").get(dailyID);
@@ -74,6 +67,7 @@ module.exports = {
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
+        // اختصارات الأوامر (Shortcuts)
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase();
@@ -87,32 +81,46 @@ module.exports = {
             }
         } catch (err) {}
 
+        // معالج الأوامر (Prefix Handler)
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+            
             if (command) {
                 let isAllowed = false;
-                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
-                else {
+                
+                // هنا كان الخطأ: PermissionsBitField لم يكن معرفاً
+                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+                    isAllowed = true;
+                } else {
                     try {
                         const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
                         const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
                         if (channelPerm || categoryPerm) isAllowed = true;
-                        else { const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, command.name); if (!hasRestrictions) isAllowed = true; }
+                        else { 
+                            const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, command.name); 
+                            if (!hasRestrictions) isAllowed = true; 
+                        }
                     } catch (err) { isAllowed = true; }
                 }
+
                 if (isAllowed) {
                     if (checkPermissions(message, command)) {
                         const cooldownMsg = checkCooldown(message, command);
-                        if (cooldownMsg) { if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); } 
-                        else { try { await command.execute(message, args); } catch (error) { console.error(error); message.reply("Error"); } }
+                        if (cooldownMsg) { 
+                            if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); 
+                        } else { 
+                            try { await command.execute(message, args); } 
+                            catch (error) { console.error(error); message.reply("❌ حدث خطأ برمجي أثناء تنفيذ الأمر."); } 
+                        }
                     }
                 }
-                return;
+                return; // إيقاف التنفيذ بعد الأمر
             }
         }
 
+        // نظام البلاغات (Report)
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/);
@@ -120,7 +128,7 @@ module.exports = {
                 await message.delete().catch(() => {});
 
                 const allowedRoles = sql.prepare("SELECT roleID FROM report_permissions WHERE guildID = ?").all(message.guild.id).map(r => r.roleID);
-                const hasPerm = message.member.permissions.has('Administrator') || allowedRoles.length === 0 || message.member.roles.cache.some(r => allowedRoles.includes(r.id));
+                const hasPerm = message.member.permissions.has(PermissionsBitField.Flags.Administrator) || allowedRoles.length === 0 || message.member.roles.cache.some(r => allowedRoles.includes(r.id));
 
                 if (!hasPerm) return sendReportError(message, "❖ ليس لـديـك صلاحيـات", "ليس لديك صلاحيات التبليغ.");
 
@@ -133,6 +141,7 @@ module.exports = {
             return; 
         }
 
+        // اختصار الكازينو
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
@@ -144,6 +153,7 @@ module.exports = {
             return;
         }
 
+        // تجميع الإحصائيات (Stats & XP & Streak)
         try {
             let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
@@ -173,6 +183,7 @@ module.exports = {
             await handleStreakMessage(message);
             await trackMessageStats(message, client);
             
+            // XP System
             let level = client.getLevel.get(message.author.id, message.guild.id);
             if (!level) level = { ...(client.defaultData || {}), xp: 0, level: 1, totalXP: 0, user: message.author.id, guild: message.guild.id };
             let getXpfromDB = settings?.customXP || 25;
