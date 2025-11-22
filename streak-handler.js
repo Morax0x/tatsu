@@ -129,7 +129,6 @@ async function updateNickname(member, sql) {
 
     let baseName = member.displayName;
 
-    // تنظيف الاسم من الستريك القديم
     const escapedEmoji = streakEmoji.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1");
     const regexString = `\\s*(${ALLOWED_SEPARATORS_REGEX.join('|')})\\s*\\d+\\s* ?${escapedEmoji}`;
     const regex = new RegExp(regexString, 'g');
@@ -158,7 +157,7 @@ async function updateNickname(member, sql) {
     }
 }
 
-// --- فحص الستريك اليومي ---
+// --- فحص الستريك العادي ---
 
 async function checkDailyStreaks(client, sql) {
     console.log("[Streak] 🔄 بدء الفحص اليومي للستريك...");
@@ -299,9 +298,7 @@ async function handleStreakMessage(message) {
                     streakData.highestStreak = streakData.streakCount;
                 }
                 updateStreakData.run(streakData);
-                console.log(`[Streak] Continued for ${message.author.tag}. Count: ${streakData.streakCount}`);
                 
-                // مكافأة كل 10 أيام
                 if (streakData.streakCount > 10) {
                     let levelData = getLevel.get(userID, guildID);
                     if (!levelData) levelData = { ...message.client.defaultData, user: userID, guild: guildID };
@@ -318,18 +315,26 @@ async function handleStreakMessage(message) {
     }
 }
 
-// --- معالج ستريك الميديا ---
+// ======================================================================
+// 🎥🎥  نظام ستريك الميديا (المطور)  🎥🎥
+// ======================================================================
 
 async function handleMediaStreakMessage(message) {
     const sql = message.client.sql;
+    
+    try {
+        sql.prepare("ALTER TABLE media_streaks ADD COLUMN lastChannelID TEXT").run();
+    } catch (e) {}
+
     const getStreak = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND userID = ?");
-    const setStreak = sql.prepare("INSERT OR REPLACE INTO media_streaks (id, guildID, userID, streakCount, lastMediaTimestamp, hasGracePeriod, hasItemShield, hasReceivedFreeShield, dmNotify, highestStreak) VALUES (@id, @guildID, @userID, @streakCount, @lastMediaTimestamp, @hasGracePeriod, @hasItemShield, @hasReceivedFreeShield, @dmNotify, @highestStreak);");
-    const updateStreakData = sql.prepare("UPDATE media_streaks SET lastMediaTimestamp = @lastMediaTimestamp, streakCount = @streakCount, highestStreak = @highestStreak WHERE id = @id");
+    const setStreak = sql.prepare("INSERT OR REPLACE INTO media_streaks (id, guildID, userID, streakCount, lastMediaTimestamp, hasGracePeriod, hasItemShield, hasReceivedFreeShield, dmNotify, highestStreak, lastChannelID) VALUES (@id, @guildID, @userID, @streakCount, @lastMediaTimestamp, @hasGracePeriod, @hasItemShield, @hasReceivedFreeShield, @dmNotify, @highestStreak, @lastChannelID);");
+    const updateStreakData = sql.prepare("UPDATE media_streaks SET lastMediaTimestamp = @lastMediaTimestamp, streakCount = @streakCount, highestStreak = @highestStreak, lastChannelID = @lastChannelID WHERE id = @id");
 
     const now = Date.now();
     const todayKSA = getKSADateString(now);
     const guildID = message.guild.id;
     const userID = message.author.id;
+    const channelID = message.channel.id;
     const id = `${guildID}-${userID}`;
 
     let streakData = getStreak.get(guildID, userID);
@@ -344,12 +349,19 @@ async function handleMediaStreakMessage(message) {
             hasItemShield: 0,
             hasReceivedFreeShield: 1,
             dmNotify: 1,
-            highestStreak: 1
+            highestStreak: 1,
+            lastChannelID: channelID
         };
         setStreak.run(streakData);
         isNewStreakToday = true;
     } else {
         const lastDateKSA = getKSADateString(streakData.lastMediaTimestamp);
+        
+        if (streakData.lastChannelID !== channelID) {
+            sql.prepare("UPDATE media_streaks SET lastChannelID = ? WHERE id = ?").run(channelID, id);
+            streakData.lastChannelID = channelID;
+        }
+
         if (todayKSA === lastDateKSA) return;
 
         if (typeof streakData.dmNotify === 'undefined' || typeof streakData.highestStreak === 'undefined') {
@@ -363,6 +375,7 @@ async function handleMediaStreakMessage(message) {
             streakData.lastMediaTimestamp = now;
             streakData.hasGracePeriod = 0;
             streakData.hasItemShield = 0;
+            streakData.lastChannelID = channelID;
             if (streakData.highestStreak < 1) streakData.highestStreak = 1;
             setStreak.run(streakData);
             isNewStreakToday = true;
@@ -371,6 +384,7 @@ async function handleMediaStreakMessage(message) {
             if (diffDays === 1) {
                 streakData.streakCount += 1;
                 streakData.lastMediaTimestamp = now;
+                streakData.lastChannelID = channelID;
                 if (streakData.streakCount > streakData.highestStreak) streakData.highestStreak = streakData.streakCount;
                 updateStreakData.run(streakData);
                 isNewStreakToday = true;
@@ -379,6 +393,7 @@ async function handleMediaStreakMessage(message) {
                 streakData.lastMediaTimestamp = now;
                 streakData.hasGracePeriod = 0;
                 streakData.hasItemShield = 0;
+                streakData.lastChannelID = channelID;
                 setStreak.run(streakData);
                 isNewStreakToday = true;
             }
@@ -386,7 +401,6 @@ async function handleMediaStreakMessage(message) {
     }
 
     if (isNewStreakToday) {
-        // مكافأة
         if (streakData.streakCount > 10) {
             try {
                 let levelData = message.client.getLevel.get(userID, guildID);
@@ -397,12 +411,12 @@ async function handleMediaStreakMessage(message) {
                 message.client.setLevel.run(levelData);
             } catch (err) { console.error("[Media Streak] Failed to give rewards:", err); }
         }
-        // رياكت
+        
         try {
             const reactionEmoji = EMOJI_MEDIA_STREAK.match(/<a?:\w+:(\d+)>/);
             if(reactionEmoji) await message.react(reactionEmoji[1]);
-        } catch (e) { console.error("[Media Streak] Failed to react:", e.message); }
-        // رد
+        } catch (e) {}
+
         try {
             const totalShields = (streakData.hasGracePeriod || 0) + (streakData.hasItemShield || 0);
             const shieldText = totalShields > 0 ? ` | ${totalShields} ${EMOJI_SHIELD}` : '';
@@ -411,12 +425,17 @@ async function handleMediaStreakMessage(message) {
                 allowedMentions: { repliedUser: false } 
             });
             setTimeout(() => { replyMsg.delete().catch(e => {}); }, 10000);
-        } catch (e) { console.error("[Media Streak] Failed to reply:", e.message); }
+        } catch (e) {}
     }
 }
 
 async function checkDailyMediaStreaks(client, sql) {
     console.log("[Media Streak] 🔄 بدء الفحص اليومي لستريك الميديا...");
+    
+    try {
+        sql.prepare("ALTER TABLE media_streaks ADD COLUMN lastChannelID TEXT").run();
+    } catch (e) {}
+
     const allStreaks = sql.prepare("SELECT * FROM media_streaks WHERE streakCount > 0").all();
     const todayKSA = getKSADateString(Date.now());
     const updateStreak = sql.prepare("UPDATE media_streaks SET streakCount = @streakCount, hasGracePeriod = @hasGracePeriod, hasItemShield = @hasItemShield WHERE id = @id");
@@ -468,103 +487,119 @@ async function checkDailyMediaStreaks(client, sql) {
 
 async function sendMediaStreakReminders(client, sql) {
     console.log("[Media Streak] ⏰ إرسال تذكيرات الستريك (3 العصر)...");
+    
+    try {
+        sql.prepare("ALTER TABLE media_streaks ADD COLUMN lastChannelID TEXT").run();
+    } catch (e) {}
+
     const todayKSA = getKSADateString(Date.now());
     const allMediaChannels = sql.prepare("SELECT * FROM media_streak_channels").all();
-    const guilds = {}; 
+    
     const activeStreaks = sql.prepare("SELECT * FROM media_streaks WHERE streakCount > 0").all();
+    const usersToRemind = [];
 
     for (const streak of activeStreaks) {
         const lastDateKSA = getKSADateString(streak.lastMediaTimestamp);
         if (lastDateKSA !== todayKSA) {
-            if (!guilds[streak.guildID]) guilds[streak.guildID] = [];
-            guilds[streak.guildID].push(streak.userID);
+            usersToRemind.push(streak);
         }
     }
 
-    for (const [guildID, userIDs] of Object.entries(guilds)) {
-        if (userIDs.length === 0) continue;
-        const targetChannels = allMediaChannels.filter(c => c.guildID === guildID);
-        if (!targetChannels || targetChannels.length === 0) continue;
+    if (usersToRemind.length === 0) return;
 
-        const mentions = userIDs.map(id => `<@${id}>`).join(' ');
-        const embed = new EmbedBuilder().setTitle(`🔔 تـذكـيـر ستـريـك المـيـديـا`).setColor(Colors.Yellow)
-            .setDescription(`- نـود تـذكيـركـم بـإرسـال المـيـديـا الخـاصـة بكـم لهـذا اليـوم ${EMOJI_MEDIA_STREAK}\n\n- بـاقـي علـى نهـايـة اليـوم أقـل مـن 9 سـاعـات!`)
-            .setThumbnail('https://i.postimg.cc/8z0Xw04N/attention.png'); 
+    for (const channelData of allMediaChannels) {
+        const guildID = channelData.guildID;
+        const channelID = channelData.channelID;
 
-        for (const channelData of targetChannels) {
-            try {
-                const channel = await client.channels.fetch(channelData.channelID);
-                if (channelData.lastReminderMessageID) {
-                    const oldMessage = await channel.messages.fetch(channelData.lastReminderMessageID).catch(() => null);
-                    if (oldMessage) await oldMessage.delete().catch(() => {});
-                }
+        const usersForThisChannel = usersToRemind.filter(streak => 
+            streak.guildID === guildID && 
+            (streak.lastChannelID === channelID || !streak.lastChannelID) 
+        );
+
+        if (usersForThisChannel.length === 0 && !channelData.lastReminderMessageID) continue;
+
+        try {
+            const channel = await client.channels.fetch(channelID);
+            
+            if (channelData.lastReminderMessageID) {
+                try {
+                    const oldMessage = await channel.messages.fetch(channelData.lastReminderMessageID);
+                    if (oldMessage) await oldMessage.delete();
+                } catch (e) {}
+            }
+
+            if (usersForThisChannel.length > 0) {
+                const mentions = usersForThisChannel.map(s => `<@${s.userID}>`).join(' ');
+                
+                const embed = new EmbedBuilder().setTitle(`🔔 تـذكـيـر ستـريـك المـيـديـا`).setColor(Colors.Yellow)
+                    .setDescription(`- نـود تـذكيـركـم بـإرسـال المـيـديـا الخـاصـة بكـم لهـذا اليـوم ${EMOJI_MEDIA_STREAK}\n\n- بـاقـي علـى نهـايـة اليـوم أقـل مـن 9 سـاعـات!`)
+                    .setThumbnail('https://i.postimg.cc/8z0Xw04N/attention.png'); 
+
                 const sentMessage = await channel.send({ content: mentions, embeds: [embed] });
-                sql.prepare("UPDATE media_streak_channels SET lastReminderMessageID = ? WHERE guildID = ? AND channelID = ?").run(sentMessage.id, guildID, channel.id);
-            } catch (err) { console.error(`[Media Streak] Reminder failed in ${guildID}:`, err.message); }
+                
+                sql.prepare("UPDATE media_streak_channels SET lastReminderMessageID = ? WHERE guildID = ? AND channelID = ?").run(sentMessage.id, guildID, channelID);
+            } else {
+                sql.prepare("UPDATE media_streak_channels SET lastReminderMessageID = NULL WHERE guildID = ? AND channelID = ?").run(guildID, channelID);
+            }
+
+        } catch (err) {
+            console.error(`[Media Streak] Reminder Error in Channel ${channelID}:`, err.message);
         }
     }
 }
 
 async function sendDailyMediaUpdate(client, sql) {
     console.log("[Media Streak] 📰 إرسال التقرير اليومي...");
+    
+    try {
+        sql.prepare("ALTER TABLE media_streak_channels ADD COLUMN lastDailyMsgID TEXT").run();
+    } catch (e) {}
+
     const allMediaChannels = sql.prepare("SELECT * FROM media_streak_channels").all();
-    const allSettings = sql.prepare("SELECT * FROM settings").all();
-    const todayKSA = getKSADateString(Date.now());
+    
+    const guildsStats = {};
 
-    const guilds = {};
-    for (const ch of allMediaChannels) {
-        if (!guilds[ch.guildID]) guilds[ch.guildID] = { channels: [], settings: null };
-        guilds[ch.guildID].channels.push(ch.channelID);
-    }
-    for (const settings of allSettings) {
-        if (guilds[settings.guild]) guilds[settings.guild].settings = settings;
-        else guilds[settings.guild] = { channels: [], settings: settings };
-    }
-
-    for (const guildID of Object.keys(guilds)) {
-        const guildData = guilds[guildID];
-        if (guildData.settings && guildData.settings.lastMediaUpdateSent === todayKSA) continue;
-        if (guildData.channels.length === 0) continue;
-
-        const topStreaks = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND streakCount > 0 ORDER BY streakCount DESC LIMIT 10").all(guildID);
-        let description = `**${EMOJI_MEDIA_STREAK} بـدأ يـوم جـديـد لستريـك الميـديـا! ${EMOJI_MEDIA_STREAK}**\n\n- لا تنسـوا إرسـال المـيـديـا الخـاصـة بكـم لهـذا اليـوم.\n\n`;
-        if (topStreaks.length > 0) {
-            description += "**🏆 قـائـمـة الأعـلـى فـي الستـريـك:**\n";
-            const leaderboard = topStreaks.map((streak, index) => {
-                const medals = ['🥇', '🥈', '🥉'];
-                const rank = medals[index] || `**${index + 1}.**`;
-                return `${rank} <@${streak.userID}> - \`${streak.streakCount}\` يوم`;
-            });
-            description += leaderboard.join('\n');
-        } else {
-            description += "لا يوجـد أحـد لـديـه ستريـك مـيـديـا حـالـيـاً. كـن أول الـمـشاركـيـن!";
-        }
-        const embed = new EmbedBuilder().setTitle("☀️ تـحـديـث ستـريـك المـيـديـا").setColor(Colors.Aqua)
-            .setDescription(description).setImage('https://i.postimg.cc/mD7Q31TR/New-Day.png'); 
-
-        let messageSent = false;
-        let firstSentMessageID = null;
-        let firstSentChannelID = null;
-
-        for (const channelID of guildData.channels) {
-            try {
-                const channel = await client.channels.fetch(channelID);
-                if (guildData.settings && guildData.settings.lastMediaUpdateMessageID && guildData.settings.lastMediaUpdateChannelID === channelID) {
-                    const oldMessage = await channel.messages.fetch(guildData.settings.lastMediaUpdateMessageID).catch(() => null);
-                    if (oldMessage) await oldMessage.delete().catch(() => {});
-                }
-                const sentMessage = await channel.send({ embeds: [embed] });
-                if (!messageSent) {
-                    firstSentMessageID = sentMessage.id;
-                    firstSentChannelID = channel.id;
-                    messageSent = true;
-                }
-            } catch (err) {}
+    for (const channelData of allMediaChannels) {
+        const guildID = channelData.guildID;
+        
+        if (!guildsStats[guildID]) {
+            const topStreaks = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND streakCount > 0 ORDER BY streakCount DESC LIMIT 10").all(guildID);
+            let description = `**${EMOJI_MEDIA_STREAK} بـدأ يـوم جـديـد لستريـك الميـديـا! ${EMOJI_MEDIA_STREAK}**\n\n- لا تنسـوا إرسـال المـيـديـا الخـاصـة بكـم لهـذا اليـوم.\n\n`;
+            
+            if (topStreaks.length > 0) {
+                description += "**🏆 قـائـمـة الأعـلـى فـي الستـريـك:**\n";
+                const leaderboard = topStreaks.map((streak, index) => {
+                    const medals = ['🥇', '🥈', '🥉'];
+                    const rank = medals[index] || `**${index + 1}.**`;
+                    return `${rank} <@${streak.userID}> - \`${streak.streakCount}\` يوم`;
+                });
+                description += leaderboard.join('\n');
+            } else {
+                description += "لا يوجـد أحـد لـديـه ستريـك مـيـديـا حـالـيـاً. كـن أول الـمـشاركـيـن!";
+            }
+            
+            const embed = new EmbedBuilder().setTitle("☀️ تـحـديـث ستـريـك المـيـديـا").setColor(Colors.Aqua)
+                .setDescription(description).setImage('https://i.postimg.cc/mD7Q31TR/New-Day.png');
+            
+            guildsStats[guildID] = embed;
         }
 
-        if (messageSent) { 
-            if (!guildData.settings) sql.prepare("INSERT OR IGNORE INTO settings (guild) VALUES (?)").run(guildID);
-            sql.prepare("UPDATE settings SET lastMediaUpdateSent = ?, lastMediaUpdateMessageID = ?, lastMediaUpdateChannelID = ? WHERE guild = ?").run(todayKSA, firstSentMessageID, firstSentChannelID, guildID);
+        try {
+            const channel = await client.channels.fetch(channelData.channelID);
+            
+            if (channelData.lastDailyMsgID) {
+                try {
+                    const oldMsg = await channel.messages.fetch(channelData.lastDailyMsgID);
+                    if (oldMsg) await oldMsg.delete();
+                } catch (e) {}
+            }
+
+            const sentMsg = await channel.send({ embeds: [guildsStats[guildID]] });
+            
+            sql.prepare("UPDATE media_streak_channels SET lastDailyMsgID = ? WHERE guildID = ? AND channelID = ?").run(sentMsg.id, guildID, channelData.channelID);
+
+        } catch (err) {
+            console.error(`[Media Streak Update] Failed for channel ${channelData.channelID}:`, err.message);
         }
     }
 }
