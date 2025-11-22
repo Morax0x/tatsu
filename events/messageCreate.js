@@ -1,4 +1,4 @@
-const { Events, EmbedBuilder, Colors, PermissionsBitField, ChannelType } = require("discord.js");
+const { Events } = require("discord.js");
 const { handleStreakMessage, handleMediaStreakMessage, calculateBuffMultiplier } = require("../streak-handler.js");
 const { checkPermissions, checkCooldown } = require("../permission-handler.js");
 const { processReportLogic, sendReportError, getReportSettings } = require("../handlers/report-handler.js");
@@ -7,72 +7,8 @@ const DISBOARD_BOT_ID = '302050872383242240';
 
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
-    const now = new Date();
-    const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
-    const friday = new Date(now.setUTCDate(diff));
-    friday.setUTCHours(0, 0, 0, 0); 
-    return friday.toISOString().split('T')[0];
-}
-function safeMerge(base, defaults) {
-    const result = { ...base };
-    for (const key in defaults) {
-        if (result[key] === undefined || result[key] === null) result[key] = defaults[key];
-    }
-    return result;
-}
-
-const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-const defaultWeeklyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
-const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
-
-async function trackMessageStats(message, client) {
-    const sql = client.sql;
-    try {
-        const guildID = message.guild.id;
-        const authorID = message.author.id;
-        const dateStr = getTodayDateString(); 
-        const weekStartDateStr = getWeekStartDateString(); 
-
-        const dailyID = `${authorID}-${guildID}-${dateStr}`;
-        const weeklyID = `${authorID}-${guildID}-${weekStartDateStr}`;
-        const totalID = `${authorID}-${guildID}`;
-
-        let daily = client.getDailyStats.get(dailyID) || { id: dailyID, userID: authorID, guildID: guildID, date: dateStr };
-        let weekly = client.getWeeklyStats.get(weeklyID) || { id: weeklyID, userID: authorID, guildID: guildID, weekStartDate: weekStartDateStr };
-        let total = client.getTotalStats.get(totalID) || { id: totalID, userID: authorID, guildID: guildID };
-
-        daily = safeMerge(daily, defaultDailyStats);
-        weekly = safeMerge(weekly, defaultWeeklyStats);
-        total = safeMerge(total, defaultTotalStats);
-
-        daily.messages++; weekly.messages++; total.total_messages++;
-
-        if (message.attachments.size > 0) {
-            daily.images++; weekly.images++; total.total_images++;
-        }
-        if (message.reference) { 
-            daily.replies_sent++; weekly.replies_sent++; total.total_replies_sent++;
-        }
-        if (message.stickers.size > 0) {
-            daily.stickers++; weekly.stickers++; total.total_stickers++;
-        }
-
-        client.setDailyStats.run(daily);
-        client.setWeeklyStats.run(weekly);
-        
-        client.setTotalStats.run({
-            id: totalID, userID: authorID, guildID: guildID,
-            total_messages: total.total_messages, total_images: total.total_images, total_stickers: total.total_stickers, total_reactions_added: total.total_reactions_added,
-            replies_sent: total.total_replies_sent, mentions_received: total.total_mentions_received,
-            total_vc_minutes: total.total_vc_minutes, total_disboard_bumps: total.total_disboard_bumps
-        });
-
-        if (client.checkQuests) {
-            await client.checkQuests(client, message.member, daily, 'daily', dateStr);
-            await client.checkQuests(client, message.member, weekly, 'weekly', weekStartDateStr);
-            await client.checkAchievements(client, message.member, null, total);
-        }
-    } catch (err) { console.error("Error in trackMessageStats:", err); }
+    const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
+    const friday = new Date(now.setUTCDate(diff)); friday.setUTCHours(0, 0, 0, 0); return friday.toISOString().split('T')[0];
 }
 
 module.exports = {
@@ -81,39 +17,55 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        if (message.author.bot) {
-            if (message.author.id === DISBOARD_BOT_ID) {
-                if (message.embeds.length > 0 && message.embeds[0].description) {
-                    const desc = message.embeds[0].description;
-                    if (desc.includes('Bump done') || desc.includes('Bump successful') || desc.includes('بومب')) {
-                        const match = desc.match(/<@!?(\d+)>/);
-                        if (match && match[1]) {
-                            const userID = match[1];
-                            try {
-                                const guildID = message.guild.id;
-                                const dateStr = getTodayDateString();
-                                const weekStr = getWeekStartDateString();
-                                const dailyID = `${userID}-${guildID}-${dateStr}`;
-                                const weeklyID = `${userID}-${guildID}-${weekStr}`;
-                                const totalID = `${userID}-${guildID}`;
+        // ---------------------------------------------------------
+        // 🟢 نظام البمب (Disboard Bump) - الدقيق 100%
+        // ---------------------------------------------------------
+        if (message.author.id === DISBOARD_BOT_ID) {
+            let bumperID = null;
 
-                                sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(dailyID, userID, guildID, dateStr);
-                                sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(weeklyID, userID, guildID, weekStr);
-                                sql.prepare(`INSERT INTO user_total_stats (id, userID, guildID, total_disboard_bumps) VALUES (?,?,?,1) ON CONFLICT(id) DO UPDATE SET total_disboard_bumps = total_disboard_bumps + 1`).run(totalID, userID, guildID);
-
-                                const member = await message.guild.members.fetch(userID).catch(() => null);
-                                if (member && client.checkQuests) {
-                                    await client.checkQuests(client, member, { disboard_bumps: 1000 }, 'daily', dateStr);
-                                    await client.checkAchievements(client, member, null, { total_disboard_bumps: 1000 });
-                                }
-                            } catch (err) { console.error(err); }
-                        }
-                    }
+            // الطريقة 1: عبر بيانات التفاعل (Interaction) - هذه الأضمن لأوامر السلاش
+            if (message.interaction && message.interaction.commandName === 'bump') {
+                bumperID = message.interaction.user.id;
+            }
+            
+            // الطريقة 2: عبر وصف الإيمبد (احتياطية)
+            if (!bumperID && message.embeds.length > 0) {
+                const desc = message.embeds[0].description || "";
+                if (desc.includes('Bump done') || desc.includes('Bump successful') || desc.includes('بومب')) {
+                    const match = desc.match(/<@!?(\d+)>/);
+                    if (match && match[1]) bumperID = match[1];
                 }
+            }
+
+            if (bumperID) {
+                try {
+                    const guildID = message.guild.id;
+                    const dateStr = getTodayDateString();
+                    const weekStr = getWeekStartDateString();
+                    const dailyID = `${bumperID}-${guildID}-${dateStr}`;
+                    const weeklyID = `${bumperID}-${guildID}-${weekStr}`;
+                    const totalID = `${bumperID}-${guildID}`;
+
+                    sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(dailyID, bumperID, guildID, dateStr);
+                    sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(weeklyID, bumperID, guildID, weekStr);
+                    sql.prepare(`INSERT INTO user_total_stats (id, userID, guildID, total_disboard_bumps) VALUES (?,?,?,1) ON CONFLICT(id) DO UPDATE SET total_disboard_bumps = total_disboard_bumps + 1`).run(totalID, bumperID, guildID);
+
+                    message.react('👊').catch(() => {});
+
+                    // التحقق من المهام
+                    const member = await message.guild.members.fetch(bumperID).catch(() => null);
+                    if (member && client.checkQuests) {
+                        const updatedDaily = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?").get(dailyID);
+                        const updatedTotal = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?").get(totalID);
+                        if (updatedDaily) await client.checkQuests(client, member, updatedDaily, 'daily', dateStr);
+                        if (updatedTotal) await client.checkAchievements(client, member, null, updatedTotal);
+                    }
+                } catch (err) { console.error("Bump Error:", err); }
             }
             return; 
         }
 
+        if (message.author.bot) return;
         if (!message.guild) return; 
 
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
