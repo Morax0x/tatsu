@@ -8,14 +8,16 @@ const sql = new SQLite('./mainDB.sqlite');
 sql.pragma('journal_mode = WAL');
 
 try {
-    // تأكد من وجود هذا الملف أو احذفه اذا كان مدمجاً
     const { setupDatabase } = require("./database-setup.js");
     setupDatabase(sql);
 } catch (err) {
     console.error("!!! Database Setup Fatal Error !!!");
     console.error(err);
-    // process.exit(1); // يمكن تفعيلها اذا كنت تريد ايقاف البوت عند الخطأ
 }
+
+// إضافة أعمدة الإعدادات الضرورية لتفادي الأخطاء
+try { sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
 
 // 2. استيراد المعالجات
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
@@ -62,7 +64,6 @@ client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
 client.sql = sql;
 
-// تشغيل نظام النسخ الاحتياطي المطور
 require('./handlers/backup-scheduler.js')(client, sql);
 
 // --- القوالب ---
@@ -446,6 +447,151 @@ function updateMarketPrices() {
     }
 }
 
+// --------------------------------------------------------
+// 💸 نظام تحصيل الديون (Debt Collectors)
+// --------------------------------------------------------
+const checkLoanPayments = async () => {
+    const now = Date.now();
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+
+    const activeLoans = sql.prepare("SELECT * FROM user_loans WHERE remainingAmount > 0 AND (lastPaymentDate + ?) <= ?").all(ONE_DAY, now);
+
+    if (activeLoans.length === 0) return;
+
+    for (const loan of activeLoans) {
+        try {
+            const guild = client.guilds.cache.get(loan.guildID);
+            if (!guild) continue;
+
+            let userData = client.getLevel.get(loan.userID, loan.guildID);
+            if (!userData) continue;
+
+            const paymentAmount = Math.min(loan.dailyPayment, loan.remainingAmount);
+            let remainingToPay = paymentAmount;
+            let logDetails = [];
+            
+            if (userData.mora > 0) {
+                const takeMora = Math.min(userData.mora, remainingToPay);
+                userData.mora -= takeMora;
+                remainingToPay -= takeMora;
+                logDetails.push(`💰 مورا: ${takeMora.toLocaleString()}`);
+            }
+
+            if (remainingToPay > 0) {
+                try {
+                    const userStocks = sql.prepare("SELECT * FROM user_stocks WHERE userID = ? AND guildID = ? AND count > 0").all(loan.userID, loan.guildID);
+                    
+                    for (const stock of userStocks) {
+                        if (remainingToPay <= 0) break;
+                        
+                        const stockInfo = sql.prepare("SELECT currentPrice FROM market_items WHERE id = ?").get(stock.stockID);
+                        const currentPrice = stockInfo ? stockInfo.currentPrice : 0;
+
+                        if (currentPrice > 0) {
+                            const stocksNeeded = Math.ceil(remainingToPay / currentPrice);
+                            const stocksToSell = Math.min(stock.count, stocksNeeded);
+                            const valueObtained = stocksToSell * currentPrice;
+
+                            if (stocksToSell === stock.count) {
+                                sql.prepare("DELETE FROM user_stocks WHERE userID = ? AND guildID = ? AND stockID = ?").run(loan.userID, loan.guildID, stock.stockID);
+                            } else {
+                                sql.prepare("UPDATE user_stocks SET count = count - ? WHERE userID = ? AND guildID = ? AND stockID = ?").run(stocksToSell, loan.userID, loan.guildID, stock.stockID);
+                            }
+
+                            remainingToPay -= valueObtained;
+                            logDetails.push(`📉 أسهم (${stock.stockID}): ${stocksToSell} سهم بقيمة ${valueObtained}`);
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            if (remainingToPay > 0) {
+                try {
+                    const userCrops = sql.prepare("SELECT * FROM user_inventory WHERE userID = ? AND guildID = ?").all(loan.userID, loan.guildID);
+                    
+                    for (const item of userCrops) {
+                        if (remainingToPay <= 0) break;
+                        const estimatedPrice = 50; 
+                        const itemsNeeded = Math.ceil(remainingToPay / estimatedPrice);
+                        const itemsToSell = Math.min(item.count, itemsNeeded);
+                        const valueObtained = itemsToSell * estimatedPrice;
+
+                        if (itemsToSell === item.count) {
+                            sql.prepare("DELETE FROM user_inventory WHERE userID = ? AND guildID = ? AND itemID = ?").run(loan.userID, loan.guildID, item.itemID);
+                        } else {
+                            sql.prepare("UPDATE user_inventory SET count = count - ? WHERE userID = ? AND guildID = ? AND itemID = ?").run(itemsToSell, loan.userID, loan.guildID, item.itemID);
+                        }
+                        
+                        remainingToPay -= valueObtained;
+                        logDetails.push(`🌾 مزرعة (${item.itemID}): ${itemsToSell} بقيمة ${valueObtained}`);
+                    }
+                } catch (e) {}
+            }
+
+            if (remainingToPay > 0) {
+                const xpPenalty = Math.floor(remainingToPay * 2);
+                
+                if (userData.xp >= xpPenalty) {
+                    userData.xp -= xpPenalty;
+                } else {
+                    userData.xp = 0; 
+                    if (userData.level > 1) userData.level -= 1;
+                }
+                
+                logDetails.push(`✨ خبرة (عقوبة): خصم ${xpPenalty} XP`);
+                remainingToPay = 0; 
+            }
+
+            client.setLevel.run(userData);
+
+            loan.remainingAmount -= paymentAmount;
+            loan.lastPaymentDate = now;
+
+            if (loan.remainingAmount <= 0) {
+                loan.remainingAmount = 0;
+                sql.prepare("DELETE FROM user_loans WHERE userID = ? AND guildID = ?").run(loan.userID, loan.guildID);
+                logDetails.push("🎉 **تم سداد القرض بالكامل!**");
+            } else {
+                sql.prepare("UPDATE user_loans SET remainingAmount = ?, lastPaymentDate = ? WHERE userID = ? AND guildID = ?").run(loan.remainingAmount, now, loan.userID, loan.guildID);
+            }
+
+            let settings;
+            try {
+                settings = sql.prepare("SELECT casinoChannelID FROM settings WHERE guild = ?").get(loan.guildID);
+            } catch (e) {}
+
+            if (settings && settings.casinoChannelID) {
+                const channel = guild.channels.cache.get(settings.casinoChannelID);
+                
+                if (channel) {
+                    const embed = new EmbedBuilder()
+                        .setTitle('❖ محـصـلي الديـون وصـلـوا !')
+                        .setColor(Colors.DarkRed)
+                        .setDescription([
+                            `👤 **العميل:** <@${loan.userID}>`,
+                            `📅 **القسط اليومي:** ${paymentAmount.toLocaleString()} ${client.EMOJI_MORA}`,
+                            `💰 **المتبقي من القرض:** ${loan.remainingAmount.toLocaleString()} ${client.EMOJI_MORA}`,
+                            `📉 **إجراءات التحصيل:**`,
+                            logDetails.length > 0 ? logDetails.map(l => `- ${l}`).join('\n') : "- تم الخصم من الرصيد البنكي مباشرة."
+                        ].join('\n'))
+                        .setThumbnail('https://i.postimg.cc/GmQN2JWF/bank.gif')
+                        .setFooter({ text: 'نظام البنك الإمبراطوري', iconURL: guild.iconURL() });
+
+                    await channel.send({ content: `<@${loan.userID}>`, embeds: [embed] });
+                }
+            } else {
+                try { 
+                    const member = await guild.members.fetch(loan.userID);
+                    member.send(`⚠️ **تنبيه بنكي:** تم خصم قسط القرض (${paymentAmount}) من حسابك/ممتلكاتك.`).catch(() => {});
+                } catch (e) {}
+            }
+
+        } catch (err) {
+            console.error(err);
+        }
+    }
+};
+
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username} (Final Fixes)`);
     
@@ -507,12 +653,13 @@ client.on(Events.ClientReady, async () => {
     };
     setInterval(calculateInterest, 60 * 60 * 1000);
     calculateInterest();
-
-    const checkLoanPayments = async () => {}; checkLoanPayments(); setInterval(checkLoanPayments, 60 * 60 * 1000);
     
     // تشغيل نظام السوق
     updateMarketPrices(); 
     setInterval(updateMarketPrices, 60 * 60 * 1000);
+
+    // تشغيل تحصيل الديون
+    setInterval(checkLoanPayments, 60 * 60 * 1000);
 
     const STAT_TICK_RATE = 60000; const MINUTES_PER_TICK = 1; const SECONDS_PER_TICK = 60; 
     setInterval(() => { const dateStr = getTodayDateString(); const weekStartDateStr = getWeekStartDateString(); client.guilds.cache.forEach(guild => { const settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id); if (!settings) return; const giveVoiceXP = settings.voiceXP > 0 && settings.voiceCooldown > 0; const voiceXP = settings.voiceXP || 0; const voiceCooldown = settings.voiceCooldown || 60000; guild.channels.cache.filter(c => c.type === ChannelType.GuildVoice).forEach(channel => { channel.members.forEach(async (member) => { if (member.user.bot || member.voice.channelID === guild.afkChannelId) return; const dailyStatsId = `${member.id}-${guild.id}-${dateStr}`; const weeklyStatsId = `${member.id}-${guild.id}-${weekStartDateStr}`; const totalStatsId = `${member.id}-${guild.id}`; let level = client.getLevel.get(member.id, guild.id); if (!level) { level = { ...client.defaultData, user: member.id, guild: guild.id }; } let dailyStats = client.getDailyStats.get(dailyStatsId) || { id: dailyStatsId, userID: member.id, guildID: guild.id, date: dateStr }; let weeklyStats = client.getWeeklyStats.get(weeklyStatsId) || { id: weeklyStatsId, userID: member.id, guildID: guild.id, weekStartDate: weekStartDateStr }; let totalStats = client.getTotalStats.get(totalStatsId) || { id: totalStatsId, userID: member.id, guildID: guild.id }; dailyStats = client.safeMerge(dailyStats, defaultDailyStats); weeklyStats = client.safeMerge(weeklyStats, defaultDailyStats); totalStats = client.safeMerge(totalStats, defaultTotalStats); let statsChanged = false; if (!member.voice.selfMute && !member.voice.selfDeaf) { dailyStats.vc_minutes += MINUTES_PER_TICK; weeklyStats.vc_minutes += MINUTES_PER_TICK; totalStats.total_vc_minutes += MINUTES_PER_TICK; level.totalVCTime += SECONDS_PER_TICK; statsChanged = true; } if (member.voice.streaming) { dailyStats.streaming_minutes += MINUTES_PER_TICK; weeklyStats.streaming_minutes += MINUTES_PER_TICK; statsChanged = true; } if (giveVoiceXP && !member.voice.selfMMute && !member.voice.selfDeaf) { const cooldownKey = `${guild.id}-${member.id}`; const now = Date.now(); const lastGain = voiceXPCooldowns.get(cooldownKey); if (!lastGain || (now - lastGain) >= voiceCooldown) { const baseXP = voiceXP; const buffMultiplier = calculateBuffMultiplier(member, sql); const finalXP = Math.floor(baseXP * buffMultiplier); level.xp += finalXP; level.totalXP += finalXP; statsChanged = true; voiceXPCooldowns.set(cooldownKey, now); } } if (statsChanged) { const nextXP = 5 * (level.level ** 2) + (50 * level.level) + 100; if (level.xp >= nextXP) { const oldLevel = level.level; level.xp -= nextXP; level.level += 1; const newLevel = level.level; client.sendLevelUpMessage(null, member, newLevel, oldLevel, level).catch(console.error); } } if (statsChanged) { client.setDailyStats.run(dailyStats); client.setWeeklyStats.run(weeklyStats); client.setTotalStats.run({ id: totalStatsId, userID: member.id, guildID: guild.id, total_messages: totalStats.total_messages, total_images: totalStats.total_images, total_stickers: totalStats.total_stickers, total_reactions_added: totalStats.total_reactions_added, replies_sent: totalStats.total_replies_sent, mentions_received: totalStats.total_mentions_received, total_vc_minutes: totalStats.total_vc_minutes, total_disboard_bumps: totalStats.total_disboard_bumps }); client.setLevel.run(level); await client.checkQuests(client, member, dailyStats, 'daily', dateStr); await client.checkQuests(client, member, weeklyStats, 'weekly', weekStartDateStr); await client.checkAchievements(client, member, level, totalStats); } }); }); }); }, STAT_TICK_RATE); 
