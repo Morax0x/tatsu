@@ -1,11 +1,9 @@
-const { EmbedBuilder, Colors, SlashCommandBuilder } = require("discord.js"); // ( 1 ) تم إضافة SlashCommandBuilder
-const { calculateMoraBuff } = require('../../streak-handler.js');
+const { EmbedBuilder, Colors, SlashCommandBuilder } = require("discord.js");
 const farmAnimals = require('../../json/farm-animals.json');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 
 module.exports = {
-    // --- ( 2 ) إضافة بيانات أمر السلاش ---
     data: new SlashCommandBuilder()
         .setName('مزرعتي')
         .setDescription('يعرض جميع الحيوانات التي تملكها في مزرعتك أو مزرعة عضو آخر.')
@@ -13,7 +11,6 @@ module.exports = {
             option.setName('المستخدم')
             .setDescription('المستخدم الذي تريد عرض مزرعته')
             .setRequired(false)),
-    // ------------------------------------
 
     name: 'myfarm',
     aliases: ['مزرعتي', 'حيواناتي'],
@@ -21,10 +18,7 @@ module.exports = {
     description: 'يعرض جميع الحيوانات التي تملكها في مزرعتك أو مزرعة عضو آخر.',
     usage: '-myfarm [@user]',
 
-    // --- ( 3 ) تعديل دالة التنفيذ ---
     async execute(interactionOrMessage, args) {
-
-        // --- ( 4 ) إضافة معالج الأوامر الهجينة ---
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         let interaction, message, guild, client, user;
         let targetMember;
@@ -33,20 +27,18 @@ module.exports = {
             interaction = interactionOrMessage;
             guild = interaction.guild;
             client = interaction.client;
-            user = interaction.user; // منفذ الأمر
+            user = interaction.user;
             targetMember = interaction.options.getMember('المستخدم') || interaction.member;
             await interaction.deferReply();
         } else {
             message = interactionOrMessage;
             guild = message.guild;
             client = message.client;
-            user = message.author; // منفذ الأمر
+            user = message.author;
             targetMember = message.mentions.members.first() || message.member;
         }
 
-        // --- ( 5 ) توحيد دوال الرد ---
         const reply = async (payload) => {
-            // الأمر الأصلي كان يرسل في القناة وليس رداً
             if (isSlash) {
                 return interaction.editReply(payload);
             } else {
@@ -55,22 +47,19 @@ module.exports = {
         };
 
         const replyError = async (content) => {
-            // الأمر الأصلي كان يرد على الرسالة عند الخطأ
             const payload = { content, ephemeral: true };
             if (isSlash) {
                 return interaction.editReply(payload);
             } else {
-                return message.reply(payload); // مطابق للأمر الأصلي
+                return message.reply(payload);
             }
         };
-        // ------------------------------------
 
-
-        const sql = client.sql; // ( 6 ) التعديل هنا
+        const sql = client.sql;
         const targetUser = targetMember.user;
 
         const userId = targetUser.id;
-        const guildId = guild.id; // ( 7 ) التعديل هنا
+        const guildId = guild.id;
 
         let userAnimals;
         try {
@@ -87,7 +76,7 @@ module.exports = {
 
         } catch (error) {
             console.error("خطأ في جلب حيوانات المزرعة:", error);
-            return replyError("❌ حدث خطأ أثناء جلب بيانات المزرعة."); // ( 8 ) التعديل هنا
+            return replyError("❌ حدث خطأ أثناء جلب بيانات المزرعة.");
         }
 
         const embed = new EmbedBuilder()
@@ -97,7 +86,7 @@ module.exports = {
         if (!userAnimals || userAnimals.length === 0) {
             embed.setDescription("مـزرعـة فـارغـة");
             embed.setImage('https://i.postimg.cc/65VKKCdP/dp2kuk914o9y-gif-1731-560.gif');
-            return reply({ embeds: [embed] }); // ( 9 ) التعديل هنا
+            return reply({ embeds: [embed] });
         }
 
         let descriptionLines = [];
@@ -126,25 +115,17 @@ module.exports = {
             );
         }
 
-        const moraMultiplier = calculateMoraBuff(targetMember, sql);
-        const finalFarmIncome = Math.floor(totalFarmIncome * moraMultiplier);
-        const buffPercent = (moraMultiplier - 1) * 100;
-
-        let footerText = `إجمالي دخل المزرعة: ${finalFarmIncome.toLocaleString()} بـاليـوم`;
-        if (buffPercent > 0) {
-            footerText += ` (+${buffPercent.toFixed(0)}%)`;
-        } else if (buffPercent < 0) {
-            footerText += ` (${buffPercent.toFixed(0)}%)`;
-        }
-
+        // تم إزالة حسابات البوف MoraBuff
         embed.setDescription(descriptionLines.join('\n\n'));
+        
+        // الفوتر يعرض الدخل الصافي فقط
         embed.setFooter({
-            text: footerText,
+            text: `إجمالي دخل المزرعة: ${totalFarmIncome.toLocaleString()} بـاليـوم`,
             iconURL: targetUser.displayAvatarURL({ dynamic: true })
         });
 
         embed.setImage('https://i.postimg.cc/65VKKCdP/dp2kuk914o9y-gif-1731-560.gif');
 
-        await reply({ embeds: [embed] }); // ( 10 ) التعديل هنا
+        await reply({ embeds: [embed] });
     }
 };
