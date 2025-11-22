@@ -3,6 +3,7 @@ const SQLite = require("better-sqlite3");
 const fs = require('fs');
 const path = require('path');
 
+// 1. إعداد قاعدة البيانات
 const sql = new SQLite('./mainDB.sqlite');
 sql.pragma('journal_mode = WAL');
 
@@ -14,9 +15,11 @@ try {
     console.error(err);
 }
 
+// إضافة أعمدة الإعدادات الضرورية لتفادي الأخطاء
 try { sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
 
+// 2. استيراد المعالجات
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
 const questsConfig = require('./json/quests-config.json');
@@ -26,6 +29,7 @@ const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./hand
 const { checkUnjailTask } = require('./handlers/report-handler.js'); 
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 
+// 3. إعداد العميل
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -37,6 +41,7 @@ const client = new Client({
     ]
 });
 
+// 4. المتغيرات العامة
 client.commands = new Collection();
 client.cooldowns = new Collection();
 client.talkedRecently = new Map();
@@ -45,6 +50,7 @@ client.recentMessageTimestamps = new Collection();
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
 const botToken = process.env.DISCORD_BOT_TOKEN;
 
+// ربط المتغيرات
 client.EMOJI_MORA = '<:mora:1435647151349698621>';
 client.EMOJI_STAR = '⭐';
 client.EMOJI_WI = '<a:wi:1435572304988868769>';
@@ -60,6 +66,7 @@ client.sql = sql;
 
 require('./handlers/backup-scheduler.js')(client, sql);
 
+// --- القوالب ---
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
 
@@ -79,6 +86,10 @@ function getWeekStartDateString() {
     friday.setUTCHours(0, 0, 0, 0); 
     return friday.toISOString().split('T')[0];
 }
+
+// ==================================================================
+// 🌟🌟 دوال النظام الأساسية 🌟🌟
+// ==================================================================
 
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
     try {
@@ -639,11 +650,23 @@ client.on(Events.ClientReady, async () => {
 
     const calculateInterest = () => {
         const now = Date.now();
-        const INTEREST_RATE = 0.0005; // 0.05%
+        const INTEREST_RATE = 0.0005; 
         const COOLDOWN = 24 * 60 * 60 * 1000; 
+        const INACTIVITY_LIMIT = 7 * 24 * 60 * 60 * 1000; 
+
         const allUsers = sql.prepare("SELECT * FROM levels WHERE bank > 0").all();
+        
         for (const user of allUsers) {
             if ((now - user.lastInterest) >= COOLDOWN) {
+                
+                const timeSinceDaily = now - (user.lastDaily || 0);
+                const timeSinceWork = now - (user.lastWork || 0);
+
+                if (timeSinceDaily > INACTIVITY_LIMIT && timeSinceWork > INACTIVITY_LIMIT) {
+                    sql.prepare("UPDATE levels SET lastInterest = ? WHERE user = ? AND guild = ?").run(now, user.user, user.guild);
+                    continue; 
+                }
+
                 const interestAmount = Math.floor(user.bank * INTEREST_RATE);
                 if (interestAmount > 0) {
                     sql.prepare("UPDATE levels SET bank = bank + ?, lastInterest = ?, totalInterestEarned = totalInterestEarned + ? WHERE user = ? AND guild = ?").run(interestAmount, now, interestAmount, user.user, user.guild);
