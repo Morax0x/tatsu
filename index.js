@@ -3,7 +3,9 @@ const SQLite = require("better-sqlite3");
 const fs = require('fs');
 const path = require('path');
 
+// ==================================================================
 // 1. إعداد قاعدة البيانات
+// ==================================================================
 const sql = new SQLite('./mainDB.sqlite');
 sql.pragma('journal_mode = WAL');
 
@@ -15,11 +17,18 @@ try {
     console.error(err);
 }
 
-// إضافة أعمدة الإعدادات الضرورية لتفادي الأخطاء
+// ضمان وجود الأعمدة الضرورية لتجنب الأخطاء
 try { sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN treeChannelID TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN countingChannelID TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN questChannelID TEXT").run(); } catch (e) {}
+try { sql.prepare("CREATE TABLE IF NOT EXISTS quest_achievement_roles (guildID TEXT, roleID TEXT, achievementID TEXT)").run(); } catch (e) {}
 
-// 2. استيراد المعالجات
+// ==================================================================
+// 2. استيراد المعالجات والملفات
+// ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
 const questsConfig = require('./json/quests-config.json');
@@ -29,7 +38,9 @@ const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./hand
 const { checkUnjailTask } = require('./handlers/report-handler.js'); 
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 
-// 3. إعداد العميل
+// ==================================================================
+// 3. إعداد العميل (Client)
+// ==================================================================
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -41,7 +52,7 @@ const client = new Client({
     ]
 });
 
-// 4. المتغيرات العامة
+// المتغيرات العامة
 client.commands = new Collection();
 client.cooldowns = new Collection();
 client.talkedRecently = new Map();
@@ -50,7 +61,7 @@ client.recentMessageTimestamps = new Collection();
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
 const botToken = process.env.DISCORD_BOT_TOKEN;
 
-// ربط المتغيرات
+// الإيموجيات والمتغيرات المساعدة
 client.EMOJI_MORA = '<:mora:1435647151349698621>';
 client.EMOJI_STAR = '⭐';
 client.EMOJI_WI = '<a:wi:1435572304988868769>';
@@ -64,9 +75,10 @@ client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
 client.sql = sql;
 
+// تشغيل نظام النسخ الاحتياطي
 require('./handlers/backup-scheduler.js')(client, sql);
 
-// --- القوالب ---
+// القوالب الافتراضية للإحصائيات
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
 
@@ -88,7 +100,7 @@ function getWeekStartDateString() {
 }
 
 // ==================================================================
-// 🌟🌟 دوال النظام الأساسية 🌟🌟
+// 4. دوال النظام الأساسية (Levelling, Quests)
 // ==================================================================
 
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
@@ -400,6 +412,13 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
     } catch (err) { console.error(`[checkRoleAchievement] Error:`, err.message); }
 }
 
+
+
+// ==================================================================
+// 5. أنظمة الاقتصاد والديون (Economy Engines)
+// ==================================================================
+
+// 5.1 نظام السوق (Realistic Market)
 function updateMarketPrices() {
     try {
         const allItems = sql.prepare("SELECT * FROM market_items").all();
@@ -414,6 +433,7 @@ function updateMarketPrices() {
                 
                 const eventRoll = Math.random(); 
 
+                // تذبذب الأسعار
                 if (eventRoll < 0.10) { 
                     changePercent = -1 * (Math.random() * 0.10 + 0.05); 
                 } else if (eventRoll > 0.90) { 
@@ -422,20 +442,14 @@ function updateMarketPrices() {
                     changePercent = (Math.random() * 0.08) - 0.04; 
                 }
 
-                if (oldPrice > 1000 && changePercent > 0) {
-                    changePercent = changePercent / 4; 
-                }
-
-                if (oldPrice > 3000 && changePercent > 0) {
-                    changePercent = changePercent / 8; 
-                }
-
-                if (oldPrice > 5000) {
-                    changePercent -= 0.05; 
-                }
+                // المقاومة والجاذبية
+                if (oldPrice > 1000 && changePercent > 0) changePercent = changePercent / 4; 
+                if (oldPrice > 3000 && changePercent > 0) changePercent = changePercent / 8; 
+                if (oldPrice > 5000) changePercent -= 0.05; 
 
                 let newPrice = Math.floor(oldPrice * (1 + changePercent));
 
+                // الحدود
                 if (newPrice > 10000) newPrice = 10000; 
                 if (newPrice < 50) newPrice = 50;       
 
@@ -454,6 +468,7 @@ function updateMarketPrices() {
     }
 }
 
+// 5.2 نظام تحصيل الديون (Ruthless Debt Collectors)
 const checkLoanPayments = async () => {
     const now = Date.now();
     const ONE_DAY = 24 * 60 * 60 * 1000;
@@ -474,6 +489,7 @@ const checkLoanPayments = async () => {
             let remainingToPay = paymentAmount;
             let logDetails = [];
             
+            // 1. سحب الكاش
             if (userData.mora > 0) {
                 const takeMora = Math.min(userData.mora, remainingToPay);
                 userData.mora -= takeMora;
@@ -481,10 +497,10 @@ const checkLoanPayments = async () => {
                 logDetails.push(`💰 مورا: ${takeMora.toLocaleString()}`);
             }
 
+            // 2. سحب الأسهم
             if (remainingToPay > 0) {
                 try {
                     const userStocks = sql.prepare("SELECT * FROM user_stocks WHERE userID = ? AND guildID = ? AND count > 0").all(loan.userID, loan.guildID);
-                    
                     for (const stock of userStocks) {
                         if (remainingToPay <= 0) break;
                         
@@ -509,10 +525,10 @@ const checkLoanPayments = async () => {
                 } catch (e) {}
             }
 
+            // 3. سحب المزرعة
             if (remainingToPay > 0) {
                 try {
                     const userCrops = sql.prepare("SELECT * FROM user_inventory WHERE userID = ? AND guildID = ?").all(loan.userID, loan.guildID);
-                    
                     for (const item of userCrops) {
                         if (remainingToPay <= 0) break;
                         const estimatedPrice = 50; 
@@ -532,16 +548,15 @@ const checkLoanPayments = async () => {
                 } catch (e) {}
             }
 
+            // 4. سحب XP (عقوبة)
             if (remainingToPay > 0) {
                 const xpPenalty = Math.floor(remainingToPay * 2);
-                
                 if (userData.xp >= xpPenalty) {
                     userData.xp -= xpPenalty;
                 } else {
                     userData.xp = 0; 
                     if (userData.level > 1) userData.level -= 1;
                 }
-                
                 logDetails.push(`✨ خبرة (عقوبة): خصم ${xpPenalty} XP`);
                 remainingToPay = 0; 
             }
@@ -559,14 +574,12 @@ const checkLoanPayments = async () => {
                 sql.prepare("UPDATE user_loans SET remainingAmount = ?, lastPaymentDate = ? WHERE userID = ? AND guildID = ?").run(loan.remainingAmount, now, loan.userID, loan.guildID);
             }
 
+            // 5. إرسال التقرير (كازينو فقط)
             let settings;
-            try {
-                settings = sql.prepare("SELECT casinoChannelID FROM settings WHERE guild = ?").get(loan.guildID);
-            } catch (e) {}
+            try { settings = sql.prepare("SELECT casinoChannelID FROM settings WHERE guild = ?").get(loan.guildID); } catch (e) {}
 
             if (settings && settings.casinoChannelID) {
                 const channel = guild.channels.cache.get(settings.casinoChannelID);
-                
                 if (channel) {
                     const embed = new EmbedBuilder()
                         .setTitle('❖ محـصـلي الديـون وصـلـوا !')
@@ -590,23 +603,23 @@ const checkLoanPayments = async () => {
                 } catch (e) {}
             }
 
-        } catch (err) {
-            console.error(err);
-        }
+        } catch (err) { console.error(err); }
     }
 };
 
+// أمر إصلاح الأسعار (للمطور فقط)
 client.on('messageCreate', async (message) => {
     if (message.content === '!fixprices' && message.author.id === '1145327691772481577') {
         try {
             sql.prepare("UPDATE market_items SET currentPrice = 500").run();
             message.reply("✅ **تم تصفير جميع أسعار الأسهم إلى 500.** سيبدأ النظام الجديد بالعمل الآن.");
-        } catch (e) {
-            message.reply("❌ حدث خطأ: " + e.message);
-        }
+        } catch (e) { message.reply("❌ حدث خطأ: " + e.message); }
     }
 });
 
+// ==================================================================
+// 6. تشغيل البوت والمجدولات (Main Loop)
+// ==================================================================
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username} (Final Fixes)`);
     
@@ -648,6 +661,7 @@ client.on(Events.ClientReady, async () => {
     client.antiRolesCache = new Map();
     await loadRoleSettings(sql, client.antiRolesCache);
 
+    // 5.3 نظام فوائد البنك (مع التحقق من النشاط)
     const calculateInterest = () => {
         const now = Date.now();
         const INTEREST_RATE = 0.0005; 
@@ -658,11 +672,12 @@ client.on(Events.ClientReady, async () => {
         
         for (const user of allUsers) {
             if ((now - user.lastInterest) >= COOLDOWN) {
-                
+                // التحقق من النشاط
                 const timeSinceDaily = now - (user.lastDaily || 0);
                 const timeSinceWork = now - (user.lastWork || 0);
 
                 if (timeSinceDaily > INACTIVITY_LIMIT && timeSinceWork > INACTIVITY_LIMIT) {
+                    // خامل: لا فائدة، فقط تحديث الوقت
                     sql.prepare("UPDATE levels SET lastInterest = ? WHERE user = ? AND guild = ?").run(now, user.user, user.guild);
                     continue; 
                 }
@@ -680,6 +695,7 @@ client.on(Events.ClientReady, async () => {
     setInterval(calculateInterest, 60 * 60 * 1000);
     calculateInterest();
     
+    // تشغيل المجدولات الرئيسية
     updateMarketPrices(); 
     setInterval(updateMarketPrices, 60 * 60 * 1000);
 
@@ -717,6 +733,9 @@ client.on(Events.ClientReady, async () => {
     sendDailyMediaUpdate(client, sql);
 }); 
 
+// ==================================================================
+// 7. تحميل الأوامر والأحداث
+// ==================================================================
 function loadCommands(dir) { const files = fs.readdirSync(dir); for (const file of files) { const fullPath = path.join(dir, file); const stat = fs.statSync(fullPath); if (stat.isDirectory()) { loadCommands(fullPath); } else if (file.endsWith('.js')) { try { const command = require(fullPath); const commandName = command.data ? command.data.name : command.name; if (commandName && 'execute' in command) { client.commands.set(commandName, command); } else { console.warn(`[CMD Warn] Skipped: ${file}`); } } catch (error) { console.error(`[CMD Error] ${file}:`, error); } } } }
 loadCommands(path.join(__dirname, 'commands')); console.log("[System] Commands Loaded.");
 
