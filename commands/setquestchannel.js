@@ -1,123 +1,189 @@
-const { PermissionsBitField, SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+const { PermissionsBitField, SlashCommandBuilder } = require("discord.js");
 
 module.exports = {
-    // 1. إعدادات السلاش كوماند
     data: new SlashCommandBuilder()
-        .setName('تحديد-قناة-المهام')
-        .setDescription('تعيين القناة التي سيتم إرسال إشعارات المهام والإنجازات فيها.')
-        .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild)
-        .addChannelOption(option =>
-            option.setName('القناة')
-            .setDescription('اختر القناة المراد تعيينها')
-            .setRequired(true)),
+        .setName('اعدادات-المهمات-الخاصة')
+        .setDescription('تحديد إعدادات المهام المتقدمة (للمطور/الادمن).')
+        .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
+        .addSubcommand(sub => sub
+            .setName('بوت-الشجرة')
+            .setDescription('تحديد بوت الشجرة للمراقبة.')
+            .addStringOption(opt => opt.setName('id-البوت').setDescription('ID الخاص بالبوت').setRequired(true)))
+        .addSubcommand(sub => sub
+            .setName('قناة-الشجرة')
+            .setDescription('تحديد قناة الشجرة للمراقبة.')
+            .addChannelOption(opt => opt.setName('القناة').setDescription('القناة').setRequired(true)))
+        .addSubcommand(sub => sub
+            .setName('قناة-العد')
+            .setDescription('تحديد قناة العد للمراقبة.')
+            .addChannelOption(opt => opt.setName('القناة').setDescription('القناة').setRequired(true)))
+        .addSubcommand(sub => sub
+            .setName('قناة-المهمات')
+            .setDescription('تحديد قناة إشعارات المهام.')
+            .addChannelOption(opt => opt.setName('القناة').setDescription('القناة').setRequired(true)))
+        .addSubcommand(sub => sub
+            .setName('رول-القيصر')
+            .setDescription('تحديد رول إنجاز القيصر.')
+            .addRoleOption(opt => opt.setName('الرتبة').setDescription('الرتبة').setRequired(true)))
+        .addSubcommand(sub => sub
+            .setName('رول-الشجرة')
+            .setDescription('تحديد رول إنجاز الشجرة.')
+            .addRoleOption(opt => opt.setName('الرتبة').setDescription('الرتبة').setRequired(true))),
 
-    // 2. إعدادات الرسائل العادية (Prefix)
-    name: 'setquestchannel',
-    aliases: ['sqc', 'setach', 'تحديد-قناة-الانجازات'],
+    name: 'set-quest-configs',
+    aliases: ['setquest', 'sqc'],
     category: "Admin",
-    description: 'تعيين القناة التي سيتم إرسال إشعارات المهام والإنجازات فيها.',
+    description: 'تحديد إعدادات المهام (للادمن فقط).',
 
-    async execute(interactionOrMessage, args) {
-        // تحديد نوع الأمر (سلاش أو رسالة)
-        const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, guild, client, member, user, channel;
+    async execute(message, args) {
 
-        // تجهيز المتغيرات بناءً على المصدر
+        const isSlash = message.isChatInputCommand ? message.isChatInputCommand() : false;
+        let interaction, guild, client, member;
+
         if (isSlash) {
-            interaction = interactionOrMessage;
+            interaction = message;
             guild = interaction.guild;
             client = interaction.client;
             member = interaction.member;
-            user = interaction.user;
-            channel = interaction.options.getChannel('القناة');
             await interaction.deferReply({ ephemeral: true });
         } else {
-            message = interactionOrMessage;
             guild = message.guild;
             client = message.client;
             member = message.member;
-            user = message.author;
-            channel = message.mentions.channels.first() || guild.channels.cache.get(args[0]);
         }
 
         const sql = client.sql;
 
-        // دالة موحدة للرد
-        const reply = async (content, embeds = []) => {
-            const payload = { content: content || null, embeds: embeds, ephemeral: true };
+        const reply = async (payload) => {
+            if (typeof payload === 'string') payload = { content: payload };
+            payload.ephemeral = false; 
+            if (isSlash) return interaction.editReply(payload);
+            return message.reply(payload);
+        };
+        const replyError = async (content) => {
+            const payload = { content, ephemeral: true };
             if (isSlash) return interaction.editReply(payload);
             return message.reply(payload);
         };
 
-        // --- 1. التحقق من الصلاحيات (للعضو) ---
-        if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-            return reply('❌ | عذراً، أنت بحاجة إلى صلاحية `ManageGuild` (إدارة السيرفر) لاستخدام هذا الأمر.');
+        if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return replyError("❌ هذا الأمر للمشرفين فقط.");
         }
 
-        // --- 2. التحقق من القناة ---
-        if (!channel) {
-            return reply('❌ | يرجى تحديد قناة صحيحة.\nمثال: `-setquestchannel #quests`');
-        }
-        
-        if (!channel.isTextBased()) {
-            return reply('❌ | يجب أن تكون القناة المختارة قناة نصية.');
+        let method, value;
+
+        if (isSlash) {
+            const subcommand = interaction.options.getSubcommand();
+            switch (subcommand) {
+                case 'بوت-الشجرة':
+                    method = 'treebot';
+                    value = interaction.options.getString('id-البوت');
+                    break;
+                case 'قناة-الشجرة':
+                    method = 'treechannel';
+                    value = interaction.options.getChannel('القناة').id;
+                    break;
+                case 'قناة-العد':
+                    method = 'countchannel';
+                    value = interaction.options.getChannel('القناة').id;
+                    break;
+                case 'قناة-المهمات':
+                    method = 'questchannel';
+                    value = interaction.options.getChannel('القناة').id;
+                    break;
+                case 'رول-القيصر':
+                    method = 'caesarrole';
+                    value = interaction.options.getRole('الرتبة').id;
+                    break;
+                case 'رول-الشجرة':
+                    method = 'treerole';
+                    value = interaction.options.getRole('الرتبة').id;
+                    break;
+            }
+        } else {
+            method = args[0] ? args[0].toLowerCase() : null;
+            let rawValue = args[1];
+            // تنظيف المدخلات في حالة المنشن (Legacy Command)
+            if (rawValue) {
+                value = rawValue.replace(/[<@!&#>]/g, ""); // يحذف الرموز ويبقى الرقم فقط
+            }
         }
 
-        // --- 3. التحقق من صلاحيات البوت في القناة المختارة ---
-        const botPerms = channel.permissionsFor(guild.members.me);
-        if (!botPerms.has([PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.AttachFiles])) {
-            return reply(`⚠️ | ليس لدي صلاحيات كافية في القناة ${channel}.\nتأكد من إعطائي الصلاحيات التالية في إعدادات القناة:\n- \`View Channel\`\n- \`Send Messages\`\n- \`Attach Files\``);
+        if (!method) {
+            return replyError(
+                "الاستخدام:\n" +
+                "`-sqc treebot <Bot_ID>`\n" +
+                "`-sqc treechannel <Channel_ID>`\n" +
+                "`-sqc countchannel <Channel_ID>`\n" +
+                "`-sqc questchannel <Channel_ID>`\n" +
+                "`-sqc caesarrole <Role_ID>`\n" +
+                "`-sqc treerole <Role_ID>`\n"
+            );
+        }
+
+        const guildID = guild.id;
+
+        // 1. معالجة الرولات (تخزن في جدول quest_achievement_roles)
+        if (method === 'caesarrole' || method === 'treerole') {
+            if (!value) return replyError("يرجى تحديد ID الرول.");
+            
+            const achievementMap = {
+                'caesarrole': 'ach_caesar_role',
+                'treerole': 'ach_tree_role'
+            };
+            const achievementID = achievementMap[method];
+            const roleName = method === 'caesarrole' ? 'القيصر' : 'إشعار الشجرة';
+
+            try {
+                // التأكد من وجود الجدول
+                sql.prepare("CREATE TABLE IF NOT EXISTS quest_achievement_roles (guildID TEXT, roleID TEXT, achievementID TEXT)").run();
+                
+                sql.prepare("DELETE FROM quest_achievement_roles WHERE guildID = ? AND achievementID = ?").run(guildID, achievementID);
+                sql.prepare("INSERT INTO quest_achievement_roles (guildID, roleID, achievementID) VALUES (?, ?, ?)").run(guildID, value, achievementID);
+                
+                return reply(`✅ تم تحديد رول ${roleName} لإنجاز: <@&${value}>`);
+            } catch (e) {
+                console.error(e);
+                return replyError("حدث خطأ في قاعدة البيانات.");
+            }
+        }
+
+        // 2. معالجة الإعدادات العامة (تخزن في جدول settings)
+        if (!value) return replyError("يرجى تحديد قيمة (ID).");
+
+        let dbColumn;
+        let successMessage;
+
+        switch (method) {
+            case 'treebot':
+                dbColumn = 'treeBotID';
+                successMessage = `✅ تم تحديد بوت الشجرة: <@${value}>`;
+                break;
+            case 'treechannel':
+                dbColumn = 'treeChannelID';
+                successMessage = `✅ تم تحديد قناة الشجرة: <#${value}>`;
+                break;
+            case 'countchannel':
+                dbColumn = 'countingChannelID';
+                successMessage = `✅ تم تحديد قناة العد: <#${value}>`;
+                break;
+            case 'questchannel':
+                dbColumn = 'questChannelID';
+                successMessage = `✅ تم تحديد قناة نشر المهام والإنجازات: <#${value}>`;
+                break;
+            default:
+                return replyError("أمر غير معروف.");
         }
 
         try {
-            // --- 4. عمليات قاعدة البيانات ---
-            
-            // أ. إنشاء الجدول إذا لم يكن موجوداً
-            sql.prepare(`CREATE TABLE IF NOT EXISTS settings (guild TEXT PRIMARY KEY, questChannelID TEXT)`).run();
-            
-            // ب. محاولة إضافة العمود (للنسخ القديمة من قاعدة البيانات)
-            try {
-                sql.prepare("ALTER TABLE settings ADD COLUMN questChannelID TEXT;").run();
-            } catch (e) {
-                // نتجاهل الخطأ إذا كان العمود موجوداً بالفعل
-            }
+            // التأكد من وجود الأعمدة في جدول settings لتجنب الكراش
+            try { sql.prepare(`ALTER TABLE settings ADD COLUMN ${dbColumn} TEXT`).run(); } catch (e) {}
 
-            // ج. الحفظ أو التحديث (Upsert)
-            // نستخدم INSERT OR REPLACE لضمان وجود سجل واحد فقط لكل سيرفر
-            const stmt = sql.prepare("INSERT OR REPLACE INTO settings (guild, questChannelID) VALUES (?, ?)");
-            
-            // إذا كان هناك إعدادات أخرى في الجدول وتريد الحفاظ عليها، نستخدم UPDATE بدلاً من REPLACE الكامل
-            // الطريقة الآمنة جداً للحفاظ على البيانات الأخرى:
-            const existingCheck = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id);
-            if (existingCheck) {
-                sql.prepare("UPDATE settings SET questChannelID = ? WHERE guild = ?").run(channel.id, guild.id);
-            } else {
-                sql.prepare("INSERT INTO settings (guild, questChannelID) VALUES (?, ?)").run(guild.id, channel.id);
-            }
-
-            // --- 5. الرد بالنجاح ---
-            const successEmbed = new EmbedBuilder()
-                .setColor(0x57F287) // لون أخضر
-                .setTitle('✅ تم الحفظ بنجاح')
-                .setDescription(`تم تعيين قناة المهام والإنجازات إلى: ${channel}\nسيتم إرسال جميع التنبيهات هناك.`)
-                .setFooter({ text: `بواسطة: ${user.tag}`, iconURL: user.displayAvatarURL() })
-                .setTimestamp();
-            
-            await reply(null, [successEmbed]);
-
-            // --- 6. إرسال رسالة ترحيبية للقناة الهدف ---
-            const welcomeEmbed = new EmbedBuilder()
-                .setColor(0xFEE75C) // لون ذهبي
-                .setTitle('🏆 قناة الإنجازات والمهام')
-                .setDescription('**مرحباً بكم!**\nتم تعيين هذه القناة رسمياً لاستقبال:\n\n📜 **المهام اليومية والأسبوعية**\n🎖️ **إعلانات الإنجازات والأوسمة**\n\nشدوا حيلكم يا أبطال! 💪')
-                .setThumbnail(guild.iconURL({ dynamic: true }))
-                .setTimestamp();
-
-            await channel.send({ embeds: [welcomeEmbed] });
-
-        } catch (err) {
-            console.error("[SetQuestChannel Error]", err);
-            return reply('❌ | حدث خطأ غير متوقع في قاعدة البيانات. يرجى مراجعة الكونسول.');
+            sql.prepare(`INSERT INTO settings (guild, ${dbColumn}) VALUES (?, ?) ON CONFLICT(guild) DO UPDATE SET ${dbColumn} = excluded.${dbColumn}`).run(guildID, value);
+            reply(successMessage);
+        } catch (e) {
+            console.error(e);
+            replyError("حدث خطأ أثناء تحديث الإعدادات.");
         }
     }
 };
