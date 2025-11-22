@@ -191,7 +191,7 @@ module.exports = {
                 activePvpChallenges.delete(channel.id);
 
                 const editPayload = {
-                    content: 'انـهـى الـوقـت لم يقـبل التحدي',
+                    content: 'انـتهـى الـوقـت لم يقـبل التحدي',
                     embeds: [],
                     components: []
                 };
