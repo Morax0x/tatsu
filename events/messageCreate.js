@@ -1,4 +1,4 @@
-const { Events, PermissionsBitField } = require("discord.js"); // ✅ تم إضافة PermissionsBitField هنا
+const { Events, PermissionsBitField } = require("discord.js");
 const { handleStreakMessage, handleMediaStreakMessage, calculateBuffMultiplier } = require("../streak-handler.js");
 const { checkPermissions, checkCooldown } = require("../permission-handler.js");
 const { processReportLogic, sendReportError, getReportSettings } = require("../handlers/report-handler.js");
@@ -11,49 +11,74 @@ function getWeekStartDateString() {
     const friday = new Date(now.setUTCDate(diff)); friday.setUTCHours(0, 0, 0, 0); return friday.toISOString().split('T')[0];
 }
 
+// دالة التسجيل الموحدة
+async function recordBump(client, guildID, userID) {
+    const sql = client.sql;
+    const dateStr = getTodayDateString();
+    const weekStr = getWeekStartDateString();
+    const dailyID = `${userID}-${guildID}-${dateStr}`;
+    const weeklyID = `${userID}-${guildID}-${weekStr}`;
+    const totalID = `${userID}-${guildID}`;
+
+    console.log(`[BUMP SUCCESS] جاري تسجيل نقطة للعضو: ${userID}`);
+
+    sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(dailyID, userID, guildID, dateStr);
+    sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(weeklyID, userID, guildID, weekStr);
+    sql.prepare(`INSERT INTO user_total_stats (id, userID, guildID, total_disboard_bumps) VALUES (?,?,?,1) ON CONFLICT(id) DO UPDATE SET total_disboard_bumps = total_disboard_bumps + 1`).run(totalID, userID, guildID);
+
+    const member = await client.guilds.cache.get(guildID)?.members.fetch(userID).catch(() => null);
+    if (member && client.checkQuests) {
+        const updatedDaily = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?").get(dailyID);
+        const updatedTotal = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?").get(totalID);
+        if (updatedDaily) await client.checkQuests(client, member, updatedDaily, 'daily', dateStr);
+        if (updatedTotal) await client.checkAchievements(client, member, null, updatedTotal);
+    }
+}
+
 module.exports = {
     name: Events.MessageCreate,
     async execute(message) {
         const client = message.client;
         const sql = client.sql;
 
-        // 🟢 نظام البمب (Disboard Bump)
+        // 🔍 --- تشخيص البمب (DISBOARD) ---
         if (message.author.id === DISBOARD_BOT_ID) {
+            console.log("[DEBUG] Disboard sent a message."); // تأكد أن هذا يظهر في الكونسول
+            
             let bumperID = null;
-            if (message.interaction && message.interaction.commandName === 'bump') {
-                bumperID = message.interaction.user.id;
+
+            // الطريقة 1: عبر التفاعل (Slash Command) - الأقوى
+            if (message.interaction) {
+                console.log(`[DEBUG] Interaction found: ${message.interaction.commandName}`);
+                if (message.interaction.commandName === 'bump') {
+                    bumperID = message.interaction.user.id;
+                    console.log(`[DEBUG] Caught via Interaction. User: ${bumperID}`);
+                }
             }
+
+            // الطريقة 2: عبر البحث في الإيمبد (Fallback)
             if (!bumperID && message.embeds.length > 0) {
                 const desc = message.embeds[0].description || "";
+                // فحص شامل لكل الصيغ المحتملة
                 if (desc.includes('Bump done') || desc.includes('Bump successful') || desc.includes('بومب')) {
-                    const match = desc.match(/<@!?(\d+)>/);
-                    if (match && match[1]) bumperID = match[1];
+                    // البحث عن أي منشن أو آيدي في الوصف
+                    // الصيغ المحتملة: <@123> أو <@!123>
+                    const match = desc.match(/<@!?(\d+)>/); 
+                    if (match && match[1]) {
+                        bumperID = match[1];
+                        console.log(`[DEBUG] Caught via Embed Description. User: ${bumperID}`);
+                    } else {
+                        console.log("[DEBUG] Bump text found, but NO User ID detected in description!");
+                        console.log(`[DEBUG] Description was: ${desc}`);
+                    }
                 }
             }
 
             if (bumperID) {
-                try {
-                    const guildID = message.guild.id;
-                    const dateStr = getTodayDateString();
-                    const weekStr = getWeekStartDateString();
-                    const dailyID = `${bumperID}-${guildID}-${dateStr}`;
-                    const weeklyID = `${bumperID}-${guildID}-${weekStr}`;
-                    const totalID = `${bumperID}-${guildID}`;
-
-                    sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(dailyID, bumperID, guildID, dateStr);
-                    sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(weeklyID, bumperID, guildID, weekStr);
-                    sql.prepare(`INSERT INTO user_total_stats (id, userID, guildID, total_disboard_bumps) VALUES (?,?,?,1) ON CONFLICT(id) DO UPDATE SET total_disboard_bumps = total_disboard_bumps + 1`).run(totalID, bumperID, guildID);
-
-                    message.react('👊').catch(() => {});
-
-                    const member = await message.guild.members.fetch(bumperID).catch(() => null);
-                    if (member && client.checkQuests) {
-                        const updatedDaily = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?").get(dailyID);
-                        const updatedTotal = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?").get(totalID);
-                        if (updatedDaily) await client.checkQuests(client, member, updatedDaily, 'daily', dateStr);
-                        if (updatedTotal) await client.checkAchievements(client, member, null, updatedTotal);
-                    }
-                } catch (err) { console.error("Bump Error:", err); }
+                await recordBump(client, message.guild.id, bumperID);
+                await message.react('👊').catch(() => {});
+            } else {
+                console.log("[DEBUG] Failed to identify bumper.");
             }
             return; 
         }
@@ -61,87 +86,67 @@ module.exports = {
         if (message.author.bot) return;
         if (!message.guild) return; 
 
+        // --- باقي الكود (الأوامر والستريك) كما هو ---
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
         let reportSettings = getReportSettings(sql, message.guild.id);
 
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
-        // اختصارات الأوامر (Shortcuts)
+        // اختصارات الأوامر
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase();
             const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
             if (shortcut) {
                 const cmd = client.commands.get(shortcut.commandName);
-                if (cmd) {
-                    try { await cmd.execute(message, argsRaw.slice(1)); } catch(e){}
-                    return;
-                }
+                if (cmd) { try { await cmd.execute(message, argsRaw.slice(1)); } catch(e){} return; }
             }
         } catch (err) {}
 
-        // معالج الأوامر (Prefix Handler)
+        // معالج الأوامر
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
-            
             if (command) {
                 let isAllowed = false;
-                
-                // هنا كان الخطأ: PermissionsBitField لم يكن معرفاً
-                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-                    isAllowed = true;
-                } else {
+                if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
+                else {
                     try {
                         const channelPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.id);
                         const categoryPerm = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ? AND channelID = ?").get(message.guild.id, command.name, message.channel.parentId);
                         if (channelPerm || categoryPerm) isAllowed = true;
-                        else { 
-                            const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, command.name); 
-                            if (!hasRestrictions) isAllowed = true; 
-                        }
+                        else { const hasRestrictions = sql.prepare("SELECT 1 FROM command_permissions WHERE guildID = ? AND commandName = ?").get(message.guild.id, command.name); if (!hasRestrictions) isAllowed = true; }
                     } catch (err) { isAllowed = true; }
                 }
-
                 if (isAllowed) {
                     if (checkPermissions(message, command)) {
                         const cooldownMsg = checkCooldown(message, command);
-                        if (cooldownMsg) { 
-                            if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); 
-                        } else { 
-                            try { await command.execute(message, args); } 
-                            catch (error) { console.error(error); message.reply("❌ حدث خطأ برمجي أثناء تنفيذ الأمر."); } 
-                        }
+                        if (cooldownMsg) { if (typeof cooldownMsg === 'string') message.reply(cooldownMsg); } 
+                        else { try { await command.execute(message, args); } catch (error) { console.error(error); message.reply("Error"); } }
                     }
                 }
-                return; // إيقاف التنفيذ بعد الأمر
+                return;
             }
         }
 
-        // نظام البلاغات (Report)
+        // بلاغات
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
-                const args = message.content.trim().split(/ +/);
-                args.shift(); 
-                await message.delete().catch(() => {});
-
+                const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
                 const allowedRoles = sql.prepare("SELECT roleID FROM report_permissions WHERE guildID = ?").all(message.guild.id).map(r => r.roleID);
                 const hasPerm = message.member.permissions.has(PermissionsBitField.Flags.Administrator) || allowedRoles.length === 0 || message.member.roles.cache.some(r => allowedRoles.includes(r.id));
-
                 if (!hasPerm) return sendReportError(message, "❖ ليس لـديـك صلاحيـات", "ليس لديك صلاحيات التبليغ.");
-
                 const target = message.mentions.members.first() || message.guild.members.cache.get(args[0]);
                 const reason = args.slice(1).join(" ");
-
                 if (!target || !reason) return sendReportError(message, "✶ خطأ في التنسيق", "`بلاغ @user السبب`");
                 await processReportLogic(client, message, target, reason);
             }
             return; 
         }
 
-        // اختصار الكازينو
+        // كازينو
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
@@ -153,7 +158,6 @@ module.exports = {
             return;
         }
 
-        // تجميع الإحصائيات (Stats & XP & Streak)
         try {
             let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
@@ -183,7 +187,6 @@ module.exports = {
             await handleStreakMessage(message);
             await trackMessageStats(message, client);
             
-            // XP System
             let level = client.getLevel.get(message.author.id, message.guild.id);
             if (!level) level = { ...(client.defaultData || {}), xp: 0, level: 1, totalXP: 0, user: message.author.id, guild: message.guild.id };
             let getXpfromDB = settings?.customXP || 25;
@@ -202,14 +205,12 @@ module.exports = {
                 client.talkedRecently.set(message.author.id, Date.now() + getCooldownfromDB);
                 setTimeout(() => client.talkedRecently.delete(message.author.id), getCooldownfromDB);
             }
-            
             try {
                 let Roles = sql.prepare("SELECT * FROM level_roles WHERE guildID = ? AND level = ?").get(message.guild.id, level.level);
                 if (Roles && message.member && !message.member.roles.cache.has(Roles.roleID)) {
                     message.member.roles.add(Roles.roleID).catch(e => {});
                 }
             } catch (e) {}
-
         } catch (err) {}
     },
 };
