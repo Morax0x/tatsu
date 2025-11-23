@@ -1,17 +1,12 @@
 const { Events } = require("discord.js");
 
-// قائمة مؤقتة لتخزين من تم حسابهم (لمنع التكرار في نفس الدقيقة)
+// تتبع التكرار (Anti-Spam)
 const treeCooldowns = new Set();
-
-function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
-function getWeekStartDateString() {
-    const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
-    const friday = new Date(now.setUTCDate(diff)); friday.setUTCHours(0, 0, 0, 0); return friday.toISOString().split('T')[0];
-}
 
 module.exports = {
     name: Events.MessageUpdate,
     async execute(oldMessage, newMessage) {
+        // التأكد من تحميل الرسالة كاملة
         if (newMessage.partial) try { await newMessage.fetch(); } catch (e) { return; }
         if (!newMessage.guild) return;
 
@@ -19,70 +14,71 @@ module.exports = {
         const sql = client.sql;
 
         try {
-            // جلب إعدادات السيرفر
+            // 1. التحقق من الإعدادات
             const settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(newMessage.guild.id);
-            
-            // ⚠️ شرط أساسي: يجب أن تكون قد حددت قناة الشجرة بالأمر -sqc treechannel
             if (!settings || !settings.treeChannelID) return;
 
-            // التأكد أن التعديل حصل في قناة الشجرة
+            // 2. التحقق من القناة والبوت
             if (newMessage.channel.id !== settings.treeChannelID) return;
-
-            // ⚠️ إلغاء شرط آيدي البوت مؤقتاً لضمان العمل، الاعتماد الآن على القناة + المحتوى
             if (!newMessage.author.bot) return; // لازم يكون بوت
 
-            let content = "";
+            // 3. تجميع المحتوى (الوصف + العنوان + المحتوى) لضمان كشف المنشن
+            let fullContent = newMessage.content || "";
             if (newMessage.embeds.length > 0) {
-                content = newMessage.embeds[0].description || "";
-            } else {
-                content = newMessage.content || "";
+                const embed = newMessage.embeds[0];
+                fullContent += " " + (embed.description || "") + " " + (embed.title || "");
+                // أحياناً المنشن يكون داخل الحقول (Fields)
+                if (embed.fields && embed.fields.length > 0) {
+                    embed.fields.forEach(field => {
+                        fullContent += " " + field.value;
+                    });
+                }
             }
 
-            // طباعة المحتوى للتشخيص
-            // console.log(`[Tree Debug] Message updated in tree channel: ${content}`);
-
-            // كلمات مفتاحية (تأكد أن بوت الشجرة يكتب إحداها)
+            // 4. كلمات مفتاحية (تأكد أن بوت الشجرة يكتب إحداها)
+            // يمكنك إضافة المزيد من الكلمات هنا
             const validPhrases = [
                 "watered the tree", 
                 "سقى الشجرة", 
                 "Watered",
-                "your tree" 
+                "your tree",
+                "قام بسقاية",
+                "level up", // أحياناً التلفيل في الشجرة يعتبر سقاية
+                "tree grew"
             ];
 
-            const isTreeMessage = validPhrases.some(phrase => content.toLowerCase().includes(phrase.toLowerCase()));
+            const isTreeMessage = validPhrases.some(phrase => fullContent.toLowerCase().includes(phrase.toLowerCase()));
 
             if (isTreeMessage) {
-                const match = content.match(/<@!?(\d+)>/);
+                // البحث عن أول منشن لعضو (User ID)
+                const match = fullContent.match(/<@!?(\d+)>/);
+                
                 if (match && match[1]) {
                     const userID = match[1];
                     
-                    // 🛑 فلتر التكرار
+                    // تجاهل إذا كان المنشن للبوت نفسه
+                    if (userID === client.user.id || userID === newMessage.author.id) return;
+
+                    // 🛑 كول داون (دقيقة واحدة لكل شخص)
                     if (treeCooldowns.has(userID)) return;
                     
                     treeCooldowns.add(userID);
-                    setTimeout(() => treeCooldowns.delete(userID), 60000); // كول داون دقيقة
+                    setTimeout(() => treeCooldowns.delete(userID), 60000); 
 
                     const guildID = newMessage.guild.id;
-                    const dateStr = getTodayDateString();
-                    const weekStr = getWeekStartDateString();
-                    const dailyID = `${userID}-${guildID}-${dateStr}`;
-                    const weeklyID = `${userID}-${guildID}-${weekStr}`;
 
-                    console.log(`[TREE SUCCESS] تم احتساب سقاية للعضو: ${userID}`);
+                    console.log(`[TREE TRACKER] ✅ تم رصد سقاية للعضو: ${userID}`);
 
-                    sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, water_tree) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET water_tree = water_tree + 1`).run(dailyID, userID, guildID, dateStr);
-                    sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, water_tree) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET water_tree = water_tree + 1`).run(weeklyID, userID, guildID, weekStr);
-
-                    const member = await newMessage.guild.members.fetch(userID).catch(() => null);
-                    if (member && client.checkQuests) {
-                        const updatedDaily = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?").get(dailyID);
-                        if (updatedDaily) {
-                            await client.checkQuests(client, member, updatedDaily, 'daily', dateStr);
-                            await client.checkQuests(client, member, updatedDaily, 'weekly', weekStr);
-                        }
+                    // 5. الحساب باستخدام الدالة المركزية (الأضمن)
+                    if (client.incrementQuestStats) {
+                        await client.incrementQuestStats(userID, guildID, 'water_tree', 1);
+                    } else {
+                        console.error("[TREE ERROR] دالة incrementQuestStats غير موجودة في client!");
                     }
                 }
             }
-        } catch (err) { console.error("[Tree Error]", err); }
+        } catch (err) {
+            console.error("[Tree Update Error]", err);
+        }
     },
 };
