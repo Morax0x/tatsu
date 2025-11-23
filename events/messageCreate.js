@@ -11,7 +11,6 @@ function getWeekStartDateString() {
     const friday = new Date(now.setUTCDate(diff)); friday.setUTCHours(0, 0, 0, 0); return friday.toISOString().split('T')[0];
 }
 
-// دالة التسجيل الموحدة
 async function recordBump(client, guildID, userID) {
     const sql = client.sql;
     const dateStr = getTodayDateString();
@@ -19,8 +18,6 @@ async function recordBump(client, guildID, userID) {
     const dailyID = `${userID}-${guildID}-${dateStr}`;
     const weeklyID = `${userID}-${guildID}-${weekStr}`;
     const totalID = `${userID}-${guildID}`;
-
-    console.log(`[BUMP SUCCESS] جاري تسجيل نقطة للعضو: ${userID}`);
 
     sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(dailyID, userID, guildID, dateStr);
     sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(weeklyID, userID, guildID, weekStr);
@@ -41,44 +38,21 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        // 🔍 --- تشخيص البمب (DISBOARD) ---
+        // 1. كشف البومب
         if (message.author.id === DISBOARD_BOT_ID) {
-            console.log("[DEBUG] Disboard sent a message."); // تأكد أن هذا يظهر في الكونسول
-            
             let bumperID = null;
-
-            // الطريقة 1: عبر التفاعل (Slash Command) - الأقوى
-            if (message.interaction) {
-                console.log(`[DEBUG] Interaction found: ${message.interaction.commandName}`);
-                if (message.interaction.commandName === 'bump') {
-                    bumperID = message.interaction.user.id;
-                    console.log(`[DEBUG] Caught via Interaction. User: ${bumperID}`);
-                }
-            }
-
-            // الطريقة 2: عبر البحث في الإيمبد (Fallback)
-            if (!bumperID && message.embeds.length > 0) {
+            if (message.interaction && message.interaction.commandName === 'bump') {
+                bumperID = message.interaction.user.id;
+            } else if (message.embeds.length > 0) {
                 const desc = message.embeds[0].description || "";
-                // فحص شامل لكل الصيغ المحتملة
                 if (desc.includes('Bump done') || desc.includes('Bump successful') || desc.includes('بومب')) {
-                    // البحث عن أي منشن أو آيدي في الوصف
-                    // الصيغ المحتملة: <@123> أو <@!123>
                     const match = desc.match(/<@!?(\d+)>/); 
-                    if (match && match[1]) {
-                        bumperID = match[1];
-                        console.log(`[DEBUG] Caught via Embed Description. User: ${bumperID}`);
-                    } else {
-                        console.log("[DEBUG] Bump text found, but NO User ID detected in description!");
-                        console.log(`[DEBUG] Description was: ${desc}`);
-                    }
+                    if (match && match[1]) bumperID = match[1];
                 }
             }
-
             if (bumperID) {
                 await recordBump(client, message.guild.id, bumperID);
                 await message.react('👊').catch(() => {});
-            } else {
-                console.log("[DEBUG] Failed to identify bumper.");
             }
             return; 
         }
@@ -86,14 +60,12 @@ module.exports = {
         if (message.author.bot) return;
         if (!message.guild) return; 
 
-        // --- باقي الكود (الأوامر والستريك) كما هو ---
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
         let reportSettings = getReportSettings(sql, message.guild.id);
-
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
-        // اختصارات الأوامر
+        // 2. الأوامر والاختصارات
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase();
@@ -104,7 +76,6 @@ module.exports = {
             }
         } catch (err) {}
 
-        // معالج الأوامر
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
@@ -131,7 +102,7 @@ module.exports = {
             }
         }
 
-        // بلاغات
+        // 3. البلاغات والكازينو
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
@@ -146,7 +117,6 @@ module.exports = {
             return; 
         }
 
-        // كازينو
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
@@ -161,22 +131,77 @@ module.exports = {
         try {
             let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
+        } catch (e) {}
 
-            if (settings && settings.countingChannelID && message.channel.id === settings.countingChannelID) {
-                sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, counting_channel) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET counting_channel = counting_channel + 1`).run(`${message.author.id}-${message.guild.id}-${getTodayDateString()}`, message.author.id, message.guild.id, getTodayDateString());
-                sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, counting_channel) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET counting_channel = counting_channel + 1`).run(`${message.author.id}-${message.guild.id}-${getWeekStartDateString()}`, message.author.id, message.guild.id, getWeekStartDateString());
-            }
-            if (message.content.toLowerCase().includes('مياو')) {
-                sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, meow_count) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET meow_count = meow_count + 1`).run(`${message.author.id}-${message.guild.id}-${getTodayDateString()}`, message.author.id, message.guild.id, getTodayDateString());
-                let level = client.getLevel.get(message.author.id, message.guild.id);
-                if (level) {
-                     level.total_meow_count = (level.total_meow_count || 0) + 1;
-                     client.setLevel.run(level);
-                     await client.checkAchievements(client, message.member, level, null);
+        // 4. [هام جداً] تتبع المهام والإحصائيات
+        try {
+            const userID = message.author.id;
+            const guildID = message.guild.id;
+
+            // أ) الرسائل والصور
+            if (client.incrementQuestStats) {
+                await client.incrementQuestStats(userID, guildID, 'messages', 1);
+                if (message.attachments.size > 0) {
+                    await client.incrementQuestStats(userID, guildID, 'images', 1);
                 }
             }
 
-            const isMediaChannel = sql.prepare("SELECT * FROM media_streak_channels WHERE guildID = ? AND channelID = ?").get(message.guild.id, message.channel.id);
+            // ب) استقبال المنشن (Recieved Mentions)
+            if (message.mentions.users.size > 0) {
+                message.mentions.users.forEach(async (user) => {
+                    if (user.id !== message.author.id && !user.bot) {
+                        if (client.incrementQuestStats) {
+                            await client.incrementQuestStats(user.id, guildID, 'mentions_received', 1);
+                        }
+                    }
+                });
+            }
+
+            // ج) إرسال الردود (Replies Sent)
+            if (message.reference && message.reference.messageId) {
+                try {
+                    const repliedMsg = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
+                    if (repliedMsg && repliedMsg.author.id !== message.author.id) {
+                        if (client.incrementQuestStats) {
+                            await client.incrementQuestStats(userID, guildID, 'replies_sent', 1);
+                        }
+                    }
+                } catch(e) {}
+            }
+
+            // د) قناة العد
+            if (settings && settings.countingChannelID && message.channel.id === settings.countingChannelID) {
+                if (!isNaN(message.content.trim())) {
+                    if (client.incrementQuestStats) {
+                        await client.incrementQuestStats(userID, guildID, 'counting_channel', 1);
+                    }
+                }
+            }
+
+            // هـ) مياو
+            if (message.content.toLowerCase().includes('مياو') || message.content.toLowerCase().includes('meow')) {
+                if (client.incrementQuestStats) await client.incrementQuestStats(userID, guildID, 'meow_count', 1);
+                let level = client.getLevel.get(userID, guildID);
+                if (level) {
+                     level.total_meow_count = (level.total_meow_count || 0) + 1;
+                     client.setLevel.run(level);
+                     if (client.checkAchievements) await client.checkAchievements(client, message.member, level, null);
+                }
+            }
+
+            // و) السقاية
+            if (settings && settings.treeChannelID && message.channel.id === settings.treeChannelID) {
+                const content = message.content.toLowerCase();
+                if (content.includes('سقاية') || content.includes('water') || content.includes('سقي')) {
+                    if (client.incrementQuestStats) {
+                        await client.incrementQuestStats(userID, guildID, 'water_tree', 1);
+                        message.react('💧').catch(() => {});
+                    }
+                }
+            }
+
+            // ز) ستريك الميديا
+            const isMediaChannel = sql.prepare("SELECT * FROM media_streak_channels WHERE guildID = ? AND channelID = ?").get(guildID, message.channel.id);
             if (isMediaChannel) {
                 if (message.attachments.size > 0 || message.content.includes('http')) {
                     await handleMediaStreakMessage(message);
@@ -184,33 +209,35 @@ module.exports = {
                 }
             }
 
-            await handleStreakMessage(message);
-            await trackMessageStats(message, client);
-            
-            let level = client.getLevel.get(message.author.id, message.guild.id);
-            if (!level) level = { ...(client.defaultData || {}), xp: 0, level: 1, totalXP: 0, user: message.author.id, guild: message.guild.id };
-            let getXpfromDB = settings?.customXP || 25;
-            let getCooldownfromDB = settings?.customCooldown || 60000;
+        } catch (err) { console.error("[Stats Tracker Error]:", err); }
 
-            if (!client.talkedRecently.get(message.author.id)) {
-                const buff = calculateBuffMultiplier(message.member, sql);
-                const xp = Math.floor((Math.random() * getXpfromDB + 1) * buff);
-                level.xp += xp; level.totalXP += xp;
-                const nextXP = 5 * (level.level ** 2) + (50 * level.level) + 100;
-                if (level.xp >= nextXP) {
-                    level.xp -= nextXP; level.level++;
-                    if(client.sendLevelUpMessage) await client.sendLevelUpMessage(message, message.member, level.level, level.level-1, level);
-                }
-                client.setLevel.run(level);
-                client.talkedRecently.set(message.author.id, Date.now() + getCooldownfromDB);
-                setTimeout(() => client.talkedRecently.delete(message.author.id), getCooldownfromDB);
+        // 5. نظام XP والستريك
+        await handleStreakMessage(message);
+        
+        let level = client.getLevel.get(message.author.id, message.guild.id);
+        if (!level) level = { ...(client.defaultData || {}), xp: 0, level: 1, totalXP: 0, user: message.author.id, guild: message.guild.id };
+        let getXpfromDB = settings?.customXP || 25;
+        let getCooldownfromDB = settings?.customCooldown || 60000;
+
+        if (!client.talkedRecently.get(message.author.id)) {
+            const buff = calculateBuffMultiplier(message.member, sql);
+            const xp = Math.floor((Math.random() * getXpfromDB + 1) * buff);
+            level.xp += xp; level.totalXP += xp;
+            const nextXP = 5 * (level.level ** 2) + (50 * level.level) + 100;
+            if (level.xp >= nextXP) {
+                level.xp -= nextXP; level.level++;
+                if(client.sendLevelUpMessage) await client.sendLevelUpMessage(message, message.member, level.level, level.level-1, level);
             }
-            try {
-                let Roles = sql.prepare("SELECT * FROM level_roles WHERE guildID = ? AND level = ?").get(message.guild.id, level.level);
-                if (Roles && message.member && !message.member.roles.cache.has(Roles.roleID)) {
-                    message.member.roles.add(Roles.roleID).catch(e => {});
-                }
-            } catch (e) {}
-        } catch (err) {}
+            client.setLevel.run(level);
+            client.talkedRecently.set(message.author.id, Date.now() + getCooldownfromDB);
+            setTimeout(() => client.talkedRecently.delete(message.author.id), getCooldownfromDB);
+        }
+        
+        try {
+            let Roles = sql.prepare("SELECT * FROM level_roles WHERE guildID = ? AND level = ?").get(message.guild.id, level.level);
+            if (Roles && message.member && !message.member.roles.cache.has(Roles.roleID)) {
+                message.member.roles.add(Roles.roleID).catch(e => {});
+            }
+        } catch (e) {}
     },
 };
