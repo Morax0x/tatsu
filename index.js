@@ -418,7 +418,7 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
 // 5. أنظمة الاقتصاد والديون (Economy Engines)
 // ==================================================================
 
-// 5.1 نظام السوق (Realistic Market)
+// 5.1 نظام السوق (Balanced Market + 1000 Resistance)
 function updateMarketPrices() {
     try {
         const allItems = sql.prepare("SELECT * FROM market_items").all();
@@ -431,27 +431,28 @@ function updateMarketPrices() {
                 const oldPrice = item.currentPrice;
                 let changePercent = 0;
                 
-                const eventRoll = Math.random(); 
+                // 1. توليد نسبة عشوائية متماثلة (Symmetric Volatility)
+                // النطاق: من -15% إلى +15%
+                // Math.random() يعطي من 0 لـ 1
+                // (Math.random() * 0.30) يعطي من 0 لـ 0.30
+                // ثم نطرح 0.15، لتصبح النتيجة النهائية من -0.15 لـ +0.15
+                changePercent = (Math.random() * 0.30) - 0.15;
 
-                // تذبذب الأسعار
-                if (eventRoll < 0.10) { 
-                    changePercent = -1 * (Math.random() * 0.10 + 0.05); 
-                } else if (eventRoll > 0.90) { 
-                    changePercent = (Math.random() * 0.10 + 0.05); 
-                } else {
-                    changePercent = (Math.random() * 0.08) - 0.04; 
+                // 2. تطبيق المقاومة الصعبة عند تجاوز 1000
+                if (oldPrice > 1000) {
+                    if (changePercent > 0) {
+                        // إذا كان السوق يحاول الصعود فوق 1000، نقسم قوة الصعود على 5
+                        // (يصبح الصعود صعب جداً)
+                        changePercent = changePercent / 5; 
+                    }
+                    // إذا كان نزول (سالب)، نتركه كما هو بقوته الكاملة (سهولة الهبوط)
                 }
 
-                // المقاومة والجاذبية
-                if (oldPrice > 1000 && changePercent > 0) changePercent = changePercent / 4; 
-                if (oldPrice > 3000 && changePercent > 0) changePercent = changePercent / 8; 
-                if (oldPrice > 5000) changePercent -= 0.05; 
-
+                // 3. حساب السعر الجديد وتطبيق الحدود القصوى والدنيا
                 let newPrice = Math.floor(oldPrice * (1 + changePercent));
 
-                // الحدود
                 if (newPrice > 10000) newPrice = 10000; 
-                if (newPrice < 50) newPrice = 50;       
+                if (newPrice < 50) newPrice = 50;        
 
                 const changeAmount = newPrice - oldPrice;
                 const finalPercent = ((changeAmount / oldPrice) * 100).toFixed(2);
@@ -461,7 +462,7 @@ function updateMarketPrices() {
         });
         
         transaction();
-        console.log(`[Market] Prices updated. Range targeted: 300-1500.`);
+        console.log(`[Market] Prices updated with Soft Cap logic.`);
         
     } catch (err) {
         console.error("[Market] Error updating prices:", err.message);
