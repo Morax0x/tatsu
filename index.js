@@ -76,8 +76,6 @@ client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
 client.sql = sql;
 
-require('./handlers/backup-scheduler.js')(client, sql);
-
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
 const defaultTotalStats = { total_messages: 0, total_images: 0, total_stickers: 0, total_reactions_added: 0, total_replies_sent: 0, total_mentions_received: 0, total_vc_minutes: 0, total_disboard_bumps: 0 };
 
@@ -191,7 +189,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
         if (questType === 'achievement' && notifSettings.achievementsNotif === 1) sendMention = true;
 
         const userIdentifier = sendMention ? `${member}` : `**${member.displayName}**`;
-         
+          
         const settings = sql.prepare("SELECT questChannelID FROM settings WHERE guild = ?").get(guild.id);
         if (!settings || !settings.questChannelID) return; 
 
@@ -205,7 +203,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
         const reward = quest.reward; 
         let message = '';
         let files = []; 
-         
+          
         const rewardDetails = `\n- **حصـلـت عـلـى:**\nMora: \`${reward.mora.toLocaleString()}\` ${client.EMOJI_MORA} | XP: \`${reward.xp.toLocaleString()}\` ${EMOJI_XP_ANIM}`;
 
         if (canAttachFiles) {
@@ -242,7 +240,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
                 rewardDetails
             ].join('\n');
         }
-         
+          
         await channel.send({ content: message, files: files, allowedMentions: { users: sendMention ? [member.id] : [] } });
 
     } catch (err) { console.error("Error sending quest announcement:", err.message); }
@@ -280,7 +278,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
         let currentProgress = 0;
         const streakData = sql.prepare("SELECT * FROM streaks WHERE guildID = ? AND userID = ?").get(member.id, member.guild.id);
         const mediaStreakData = sql.prepare("SELECT * FROM media_streaks WHERE guildID = ? AND userID = ?").get(member.guild.id, member.id);
-         
+          
         if (!totalStatsData) totalStatsData = client.getTotalStats.get(`${member.id}-${member.guild.id}`) || {};
         totalStatsData = client.safeMerge(totalStatsData, defaultTotalStats); 
 
@@ -367,14 +365,14 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (stat === 'replies_sent') totalStats.total_replies_sent = (totalStats.total_replies_sent || 0) + amount;
         if (stat === 'mentions_received') totalStats.total_mentions_received = (totalStats.total_mentions_received || 0) + amount;
         if (stat === 'vc_minutes') totalStats.total_vc_minutes = (totalStats.total_vc_minutes || 0) + amount;
-         
+          
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
-         
+          
         client.setTotalStats.run({
             id: totalStatsId, userID, guildID,
             total_messages: totalStats.total_messages, total_images: totalStats.total_images, total_stickers: totalStats.total_stickers,
-            total_reactions_added: totalStats.total_reactions_added, replies_sent: totalStats.total_replies_sent, mentions_received: totalStats.total_mentions_received,
+            total_reactions_added: totalStats.total_reactions_added, total_replies_sent: totalStats.total_replies_sent, total_mentions_received: totalStats.total_mentions_received,
             total_vc_minutes: totalStats.total_vc_minutes, total_disboard_bumps: totalStats.total_disboard_bumps
         });
 
