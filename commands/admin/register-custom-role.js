@@ -1,4 +1,4 @@
-const { PermissionsBitField, SlashCommandBuilder, EmbedBuilder, Colors } = require("discord.js");
+const { PermissionsBitField, SlashCommandBuilder, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require("discord.js");
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -24,7 +24,6 @@ module.exports = {
         .addSubcommand(sub => sub
             .setName('قائمة')
             .setDescription('عرض قائمة الرتب الخاصة المسجلة.')
-            .addIntegerOption(opt => opt.setName('صفحة').setDescription('رقم الصفحة').setRequired(false))
         ),
 
     name: 'register-custom-role',
@@ -35,29 +34,28 @@ module.exports = {
     async execute(interactionOrMessage, args) {
         
         const isSlash = !!interactionOrMessage.isChatInputCommand;
-        let interaction, message, guild, client, member;
+        let interaction, message, guild, client, member, user;
 
         if (isSlash) {
             interaction = interactionOrMessage;
             guild = interaction.guild;
             client = interaction.client;
             member = interaction.member;
+            user = interaction.user;
             await interaction.deferReply({ ephemeral: true });
         } else {
             message = interactionOrMessage;
             guild = message.guild;
             client = message.client;
             member = message.member;
+            user = message.author;
         }
 
         const sql = client.sql;
 
         const reply = async (payload) => {
             if (typeof payload === 'string') payload = { content: payload };
-            if (isSlash) {
-                payload.ephemeral = true; 
-                return interaction.editReply(payload);
-            }
+            if (isSlash) return interaction.editReply(payload);
             return message.reply(payload);
         };
 
@@ -67,7 +65,6 @@ module.exports = {
 
         let subcommand;
         let targetUser, targetRole;
-        let page = 1;
 
         if (isSlash) {
             subcommand = interaction.options.getSubcommand();
@@ -89,12 +86,11 @@ module.exports = {
                 if (isSlash) targetRole = interaction.options.getRole('الرتبة');
                 if (!targetRole) return reply("❌ يجب تحديد الرتبة.");
 
-                // ( 🌟 التعديل هنا: إزالة guild.members.fetch() لمنع الـ Rate Limit 🌟 )
-                // نعتمد على الكاش الموجود لأن البوت لديه intent GuildMembers
+                await guild.members.fetch(); 
                 const membersWithRole = targetRole.members.filter(m => !m.user.bot); 
 
                 if (membersWithRole.size === 0) {
-                    return reply(`⚠️ لم أجد أعضاء (بشر) يمتلكون الرتبة ${targetRole} في الذاكرة حالياً.`);
+                    return reply(`⚠️ لا يوجد أي أعضاء (بشر) يمتلكون الرتبة ${targetRole} حالياً.`);
                 }
 
                 let successCount = 0;
@@ -106,19 +102,16 @@ module.exports = {
                         successCount++;
                     });
                 });
-                
                 transaction();
 
                 const embed = new EmbedBuilder()
                     .setTitle("✅ تم التسجيل الجماعي بنجاح")
                     .setDescription(`تم تسجيل الرتبة ${targetRole} لـ **${successCount}** عضو.\nالآن يمكنهم جميعاً التحكم بهذه الرتبة من خلال اللوحة.`)
-                    .setColor(Colors.Green)
-                    .setFooter({ text: "ملاحظة: هذا الأمر يقوم بتحديث البيانات فقط." });
-
+                    .setColor(Colors.Green);
                 return reply({ embeds: [embed] });
             }
 
-            // --- 2. تسجيل فردي (Add) ---
+            // --- 2. تسجيل فردي ---
             if (subcommand === 'تسجيل-فردي') {
                 if (isSlash) {
                     targetUser = interaction.options.getUser('العضو');
@@ -129,16 +122,10 @@ module.exports = {
                 sql.prepare("INSERT OR REPLACE INTO custom_roles (id, guildID, userID, roleID) VALUES (?, ?, ?, ?)")
                    .run(`${guild.id}-${targetUser.id}`, guild.id, targetUser.id, targetRole.id);
 
-                // (اختياري) التأكد من أن العضو يملك الرتبة
-                const guildMember = await guild.members.fetch(targetUser.id).catch(() => null);
-                if (guildMember && !guildMember.roles.cache.has(targetRole.id)) {
-                    await guildMember.roles.add(targetRole).catch(() => {});
-                }
-
                 return reply(`✅ تم تسجيل الرتبة ${targetRole} للعضو ${targetUser} بنجاح.`);
             }
 
-            // --- 3. إزالة (Remove) ---
+            // --- 3. إزالة ---
             if (subcommand === 'ازالة') {
                 if (isSlash) targetUser = interaction.options.getUser('العضو');
                 if (!targetUser) return reply("❌ يجب تحديد العضو.");
@@ -149,31 +136,68 @@ module.exports = {
                 return reply(`❌ هذا العضو ليس لديه رتبة مسجلة.`);
             }
 
-            // --- 4. قائمة (List) ---
+            // --- 4. قائمة (مع أزرار) ---
             if (subcommand === 'قائمة') {
-                if (isSlash) page = interaction.options.getInteger('صفحة') || 1;
-                
                 const allRoles = sql.prepare("SELECT userID, roleID FROM custom_roles WHERE guildID = ?").all(guild.id);
                 if (allRoles.length === 0) return reply("📭 لا توجد أي رتب خاصة مسجلة.");
 
+                let currentPage = 1;
                 const itemsPerPage = 10;
                 const totalPages = Math.ceil(allRoles.length / itemsPerPage);
-                if (page > totalPages) page = 1;
 
-                const startIndex = (page - 1) * itemsPerPage;
-                const pageItems = allRoles.slice(startIndex, startIndex + itemsPerPage);
+                const generateEmbed = (page) => {
+                    const startIndex = (page - 1) * itemsPerPage;
+                    const pageItems = allRoles.slice(startIndex, startIndex + itemsPerPage);
+                    const description = pageItems.map((item, index) => 
+                        `**${startIndex + index + 1}.** <@${item.userID}> : <@&${item.roleID}>`
+                    ).join('\n');
 
-                const description = pageItems.map((item, index) => 
-                    `**${startIndex + index + 1}.** <@${item.userID}> : <@&${item.roleID}>`
-                ).join('\n');
+                    return new EmbedBuilder()
+                        .setTitle(`📜 الرتب المسجلة (${allRoles.length})`)
+                        .setDescription(description || "لا يوجد")
+                        .setFooter({ text: `صفحة ${page} من ${totalPages}` })
+                        .setColor(Colors.Blue);
+                };
 
-                const embed = new EmbedBuilder()
-                    .setTitle(`📜 الرتب المسجلة (${allRoles.length})`)
-                    .setDescription(description)
-                    .setFooter({ text: `صفحة ${page} من ${totalPages}` })
-                    .setColor(Colors.Blue);
+                const getButtons = (page) => {
+                    const row = new ActionRowBuilder()
+                        .addComponents(
+                            new ButtonBuilder()
+                                .setCustomId('prev_page')
+                                .setEmoji('<:left:1439164494759723029>') // (تأكد من صحة الايموجي)
+                                .setStyle(ButtonStyle.Secondary)
+                                .setDisabled(page === 1),
+                            new ButtonBuilder()
+                                .setCustomId('next_page')
+                                .setEmoji('<:right:1439164491072929915>') // (تأكد من صحة الايموجي)
+                                .setStyle(ButtonStyle.Secondary)
+                                .setDisabled(page === totalPages)
+                        );
+                    return row;
+                };
 
-                return reply({ embeds: [embed] });
+                const msg = await (isSlash 
+                    ? interaction.editReply({ embeds: [generateEmbed(currentPage)], components: [getButtons(currentPage)] })
+                    : message.reply({ embeds: [generateEmbed(currentPage)], components: [getButtons(currentPage)] })
+                );
+
+                if (totalPages > 1) {
+                    const collector = msg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
+
+                    collector.on('collect', async i => {
+                        if (i.user.id !== user.id) return i.reply({ content: "هذه القائمة ليست لك.", ephemeral: true });
+                        
+                        if (i.customId === 'prev_page' && currentPage > 1) currentPage--;
+                        if (i.customId === 'next_page' && currentPage < totalPages) currentPage++;
+                        
+                        await i.update({ embeds: [generateEmbed(currentPage)], components: [getButtons(currentPage)] });
+                    });
+
+                    collector.on('end', () => {
+                        msg.edit({ components: [] }).catch(() => {});
+                    });
+                }
+                return;
             }
 
         } catch (e) {
