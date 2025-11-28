@@ -1,4 +1,4 @@
-// ( 🌟 Added REST and Routes here in the first line 🌟 )
+// ( 🌟 تم إضافة REST و Routes هنا في السطر الأول 🌟 )
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType, REST, Routes } = require("discord.js");
 const SQLite = require("better-sqlite3");
 const sql = new SQLite('./mainDB.sqlite');
@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. Database Setup
+// 1. إعداد قاعدة البيانات
 // ==================================================================
 sql.pragma('journal_mode = WAL');
 
@@ -19,7 +19,7 @@ try {
     process.exit(1);
 }
 
-// Ensure critical columns exist (Migration)
+// ضمان وجود الأعمدة الضرورية
 try { sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
@@ -28,9 +28,17 @@ try { sql.prepare("ALTER TABLE settings ADD COLUMN countingChannelID TEXT").run(
 try { sql.prepare("ALTER TABLE settings ADD COLUMN questChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE levels ADD COLUMN lastFarmYield INTEGER DEFAULT 0").run(); } catch (e) {} 
 try { sql.prepare("CREATE TABLE IF NOT EXISTS quest_achievement_roles (guildID TEXT, roleID TEXT, achievementID TEXT)").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN shopChannelID TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN bumpChannelID TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN customRoleAnchorID TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelTitle TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelDescription TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelImage TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelColor TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN lastQuestPanelChannelID TEXT").run(); } catch (e) {} // ( 🌟 مهم جداً 🌟 )
 
 // ==================================================================
-// 2. Import Handlers and Files
+// 2. استيراد المعالجات والملفات
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
@@ -44,7 +52,7 @@ const { checkUnjailTask } = require('./handlers/report-handler.js');
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 
 // ==================================================================
-// 3. Client Setup
+// 3. إعداد العميل (Client)
 // ==================================================================
 const client = new Client({
     intents: [
@@ -102,7 +110,7 @@ function getWeekStartDateString() {
 }
 
 // ==================================================================
-// 4. Core System Functions (Levelling, Quests)
+// 4. دوال النظام الأساسية (Levelling, Quests)
 // ==================================================================
 
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
@@ -194,8 +202,11 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
         if (questType === 'achievement' && notifSettings.achievementsNotif === 1) sendMention = true;
 
         const userIdentifier = sendMention ? `${member}` : `**${member.displayName}**`;
-          
-        const settings = sql.prepare("SELECT questChannelID FROM settings WHERE guild = ?").get(guild.id);
+        
+        // --- ( 🌟 الإصلاح هنا: جلب جميع الإعدادات بدلاً من قناة المهام فقط 🌟 ) ---
+        const settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id);
+        // -------------------------------------------------------------------
+        
         if (!settings || !settings.questChannelID) return; 
 
         const channel = guild.channels.cache.get(settings.questChannelID);
@@ -210,6 +221,9 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
         let files = []; 
           
         const rewardDetails = `\n- **حصـلـت عـلـى:**\nMora: \`${reward.mora.toLocaleString()}\` ${client.EMOJI_MORA} | XP: \`${reward.xp.toLocaleString()}\` ${EMOJI_XP_ANIM}`;
+
+        // ( 🌟 الآن سيعمل رابط القناة بشكل صحيح لأننا جلبنا كل الإعدادات 🌟 )
+        const panelChannelLink = settings.lastQuestPanelChannelID ? `\n\n✶ قـاعـة الانجـازات والمـهام والاشعـارات:\n<#${settings.lastQuestPanelChannelID}>` : "";
 
         if (canAttachFiles) {
             try {
@@ -231,7 +245,8 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
                 `✥ انـجـاز: **${questName}**`,
                 ``,
                 `- فـالتسـجل امبراطوريتـنـا اسمـك بيـن العضـمـاء ${client.EMOJI_PRAY}`,
-                rewardDetails
+                rewardDetails,
+                panelChannelLink 
             ].join('\n');
         } else {
             const typeText = questType === 'daily' ? 'يوميـة' : 'اسبوعيـة';
@@ -242,7 +257,8 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
                 ``,
                 `- لقـد أثبـت انـك احـد اركـان الامبراطـورية ${client.EMOJI_PRAY}`,
                 `- لا يُكلـف مثـلك الا بالمستحيـل ${client.EMOJI_COOL} ~`,
-                rewardDetails
+                rewardDetails,
+                panelChannelLink 
             ].join('\n');
         }
           
@@ -615,7 +631,7 @@ client.on(Events.ClientReady, async () => {
     client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
     client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
     client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
-    client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @total_replies_sent, @total_mentions_received, @total_vc_minutes, @total_disboard_bumps);");
+    client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @replies_sent, @mentions_received, @total_vc_minutes, @total_disboard_bumps);");
     client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
     client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
     client.antiRolesCache = new Map();
