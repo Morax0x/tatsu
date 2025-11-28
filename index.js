@@ -1,13 +1,12 @@
-// ( 🌟 تم إضافة REST و Routes هنا في السطر الأول 🌟 )
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType, REST, Routes } = require("discord.js");
 const SQLite = require("better-sqlite3");
-const sql = new SQLite('./mainDB.sqlite');
 const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. إعداد قاعدة البيانات
+// 1. Database Setup
 // ==================================================================
+const sql = new SQLite('./mainDB.sqlite');
 sql.pragma('journal_mode = WAL');
 
 try {
@@ -19,7 +18,7 @@ try {
     process.exit(1);
 }
 
-// ضمان وجود الأعمدة الضرورية
+// Ensure critical columns exist (Migration)
 try { sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
@@ -35,10 +34,10 @@ try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelTitle TEXT").r
 try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelDescription TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelImage TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelColor TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN lastQuestPanelChannelID TEXT").run(); } catch (e) {} // ( 🌟 مهم جداً 🌟 )
+try { sql.prepare("ALTER TABLE settings ADD COLUMN lastQuestPanelChannelID TEXT").run(); } catch (e) {}
 
 // ==================================================================
-// 2. استيراد المعالجات والملفات
+// 2. Import Handlers and Files
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
@@ -52,7 +51,7 @@ const { checkUnjailTask } = require('./handlers/report-handler.js');
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 
 // ==================================================================
-// 3. إعداد العميل (Client)
+// 3. Client Setup
 // ==================================================================
 const client = new Client({
     intents: [
@@ -110,7 +109,7 @@ function getWeekStartDateString() {
 }
 
 // ==================================================================
-// 4. دوال النظام الأساسية (Levelling, Quests)
+// 4. Core System Functions (Levelling, Quests)
 // ==================================================================
 
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
@@ -142,7 +141,6 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
     } catch (err) { console.error("[Level Roles] Error:", err.message); }
 }
 
-// Leveling function (modified to prevent crash with voice)
 client.sendLevelUpMessage = async function(messageOrInteraction, member, newLevel, oldLevel, xpData) {
     try {
         await client.checkAndAwardLevelRoles(member, newLevel);
@@ -161,7 +159,7 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
             if (messageOrInteraction && messageOrInteraction.channel) {
                 channelToSend = messageOrInteraction.channel;
             } else {
-                return; // Exit function if no channel
+                return; 
             }
         }
 
@@ -202,11 +200,8 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
         if (questType === 'achievement' && notifSettings.achievementsNotif === 1) sendMention = true;
 
         const userIdentifier = sendMention ? `${member}` : `**${member.displayName}**`;
-        
-        // --- ( 🌟 الإصلاح هنا: جلب جميع الإعدادات بدلاً من قناة المهام فقط 🌟 ) ---
-        const settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id);
-        // -------------------------------------------------------------------
-        
+          
+        const settings = sql.prepare("SELECT questChannelID, lastQuestPanelChannelID FROM settings WHERE guild = ?").get(guild.id);
         if (!settings || !settings.questChannelID) return; 
 
         const channel = guild.channels.cache.get(settings.questChannelID);
@@ -222,7 +217,6 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
           
         const rewardDetails = `\n- **حصـلـت عـلـى:**\nMora: \`${reward.mora.toLocaleString()}\` ${client.EMOJI_MORA} | XP: \`${reward.xp.toLocaleString()}\` ${EMOJI_XP_ANIM}`;
 
-        // ( 🌟 الآن سيعمل رابط القناة بشكل صحيح لأننا جلبنا كل الإعدادات 🌟 )
         const panelChannelLink = settings.lastQuestPanelChannelID ? `\n\n✶ قـاعـة الانجـازات والمـهام والاشعـارات:\n<#${settings.lastQuestPanelChannelID}>` : "";
 
         if (canAttachFiles) {
@@ -390,6 +384,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         
+        // --- ( 🌟 تصحيح: استخدام الأسماء الصحيحة للأعمدة 🌟 ) ---
         client.setTotalStats.run({
             id: totalStatsId, 
             userID, 
@@ -403,6 +398,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
             total_vc_minutes: totalStats.total_vc_minutes, 
             total_disboard_bumps: totalStats.total_disboard_bumps
         });
+        // -----------------------------------------------------
 
         const member = client.guilds.cache.get(guildID)?.members.cache.get(userID);
         if (member) {
@@ -570,11 +566,9 @@ async function processFarmYields() {
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username}`);
     
-    // ( 🌟 تم إضافة REST هنا لتحديث الأوامر تلقائياً 🌟 )
     const rest = new REST({ version: '10' }).setToken(botToken);
     const commands = [];
     
-    // ( 🌟 دالة لمنع التكرار 🌟 )
     const loadedCommandNames = new Set();
 
     function getFiles(dir) {
@@ -593,7 +587,6 @@ client.on(Events.ClientReady, async () => {
         try {
             const command = require(file);
             
-            // ( 🌟 التحقق من التكرار قبل الإضافة 🌟 )
             const cmdName = command.data ? command.data.name : command.name;
             
             if (cmdName) {
@@ -605,7 +598,6 @@ client.on(Events.ClientReady, async () => {
                 
                 if (command.data) commands.push(command.data.toJSON());
                 
-                // تسجيل الأمر في الكولكشن للاستخدام
                 if ('execute' in command) {
                     client.commands.set(cmdName, command);
                 }
@@ -615,7 +607,6 @@ client.on(Events.ClientReady, async () => {
         }
     }
     
-    // ( 🌟 تحديث الأوامر تلقائياً - الآن آمن من التكرار 🌟 )
     try { 
         const CLIENT_ID = client.user.id;
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands }); 
@@ -631,7 +622,7 @@ client.on(Events.ClientReady, async () => {
     client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
     client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
     client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
-    client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @replies_sent, @mentions_received, @total_vc_minutes, @total_disboard_bumps);");
+    client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @total_replies_sent, @total_mentions_received, @total_vc_minutes, @total_disboard_bumps);");
     client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
     client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
     client.antiRolesCache = new Map();
@@ -698,9 +689,6 @@ client.on(Events.ClientReady, async () => {
     
     sendDailyMediaUpdate(client, sql);
 }); 
-
-// ( 🌟 تم دمج تحميل الأوامر مع ClientReady أعلاه - هذا الجزء أصبح زائد 🌟 )
-// ( ولكن نحتاج لـ events loader )
 
 require('./interaction-handler.js')(client, sql);
 
