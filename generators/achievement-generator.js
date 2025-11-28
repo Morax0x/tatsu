@@ -12,6 +12,7 @@ try {
     console.log("[Achievement-Gen] تم تسجيل الخطوط.");
 } catch (err) { console.error(err.message); }
 
+// --- ( 2. تعريف الخطوط ) ---
 const FONT_MAIN = '"Font-Main", "NotoEmoji"'; 
 const FONT_EMOJI = '"NotoEmoji"'; 
 
@@ -22,7 +23,7 @@ const FONT_PAGE_COUNT = FONT_MAIN;
 const FONT_PROGRESS_TEXT = FONT_MAIN; 
 const FONT_REWARDS = FONT_MAIN; 
 
-// --- ( 🌟 قائمة ألوان ضخمة للإشعارات 🌟 ) ---
+// --- ( 🌟 قائمة الألوان الضخمة للإشعارات فقط 🌟 ) ---
 const EXTENDED_COLORS = [
     { base: '#1a4b2a', frame: '#2d8649', highlight: '#34eb6e', glow: '#69ff9c' }, // أخضر
     { base: '#1a3e4b', frame: '#2d6a86', highlight: '#349eeb', glow: '#69bfff' }, // أزرق سماوي
@@ -41,6 +42,7 @@ const EXTENDED_COLORS = [
     { base: '#1a0f2e', frame: '#3d1d66', highlight: '#8a2be2', glow: '#9370db' }  // بنفسجي غامق
 ];
 
+// دالة اختيار لون عشوائي من القائمة الكبيرة
 function getRandomExtColor() {
     return EXTENDED_COLORS[Math.floor(Math.random() * EXTENDED_COLORS.length)];
 }
@@ -57,21 +59,32 @@ const ACH_CARD_WIDTH = 800;
 const ACH_CARD_HEIGHT = 180; 
 const PAGE_WIDTH = ACH_CARD_WIDTH + (PAGE_MARGIN * 2);
 
-// ... (دوال الرسم المساعدة: getEmojiUrl, drawRoundedRect, drawProgressBar, drawWavyBackground - انسخها من الملفات السابقة إذا كانت ناقصة، هي نفسها) ...
-function getEmojiUrl(emoji) { if (!emoji) return null; const customMatch = emoji.match(/<?(a)?:?(\w{2,32}):(\d{17,19})>?/); if (customMatch) { const ext = customMatch[1] ? 'gif' : 'png'; return `https://cdn.discordapp.com/emojis/${customMatch[3]}.${ext}`; } try { if (/^[a-zA-Z0-9\s]+$/.test(emoji)) return null; const codePoints = [...emoji].map(c => c.codePointAt(0).toString(16)).filter(cp => cp !== 'fe0f').join('-'); return `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/${codePoints}.png`; } catch (e) { return null; } }
+function getEmojiUrl(emoji) {
+    if (!emoji) return null;
+    const customMatch = emoji.match(/<?(a)?:?(\w{2,32}):(\d{17,19})>?/);
+    if (customMatch) {
+        const ext = customMatch[1] ? 'gif' : 'png';
+        return `https://cdn.discordapp.com/emojis/${customMatch[3]}.${ext}`;
+    }
+    try {
+        if (/^[a-zA-Z0-9\s]+$/.test(emoji)) return null;
+        const codePoints = [...emoji].map(c => c.codePointAt(0).toString(16)).filter(cp => cp !== 'fe0f').join('-');
+        return `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/${codePoints}.png`;
+    } catch (e) { return null; }
+}
+
 function drawRoundedRect(ctx, x, y, width, height, radius) { ctx.beginPath(); ctx.moveTo(x + radius, y); ctx.lineTo(x + width - radius, y); ctx.quadraticCurveTo(x + width, y, x + width, y + radius); ctx.lineTo(x + width, y + height - radius); ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height); ctx.lineTo(x + radius, y + height); ctx.quadraticCurveTo(x, y + height, x, y + height - radius); ctx.lineTo(x, y + radius); ctx.quadraticCurveTo(x, y, x + radius, y); ctx.closePath(); }
 function drawProgressBar(ctx, x, y, width, height, progressPercent, colorStart, colorEnd) { ctx.save(); ctx.fillStyle = '#2c2f33'; drawRoundedRect(ctx, x, y, width, height, height / 2); ctx.fill(); if (progressPercent > 0) { const progressGradient = ctx.createLinearGradient(x, 0, x + width, 0); progressGradient.addColorStop(0, colorStart); progressGradient.addColorStop(1, colorEnd); ctx.fillStyle = progressGradient; drawRoundedRect(ctx, x, y, width * progressPercent, height, height / 2); ctx.fill(); } ctx.restore(); }
 function drawWavyBackground(ctx, x, y, width, height, color1, color2) { ctx.save(); drawRoundedRect(ctx, x, y, width, height, 15); ctx.clip(); const gradient = ctx.createLinearGradient(x, y, x + width, y + height); gradient.addColorStop(0, color1); gradient.addColorStop(1, color2); ctx.fillStyle = gradient; ctx.fillRect(x, y, width, height); ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)'; ctx.lineWidth = 2; for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.moveTo(x, y + (height / 5) * i); for (let j = 0; j <= width; j += 20) { const waveHeight = Math.sin((j / width) * Math.PI * 3 + i) * 10; ctx.lineTo(x + j, y + (height / 5) * i + waveHeight); } ctx.stroke(); } ctx.restore(); }
 
-
 // ===========================================
-// ( دالة الرسم الرئيسية )
+// ( 1. دالة الرسم الرئيسية )
 // ===========================================
 async function drawAchievementCard(ctx, x, y, data, forcedColors = null) {
     const { achievement, progress, isDone } = data;
     const percent = Math.min(1, Math.max(0, progress / achievement.goal));
     
-    // ( 🌟 إذا تم تمرير لون نستخدمه، وإلا نستخدم العشوائي 🌟 )
+    // ( 🌟 هنا السر: إذا لم نحدد لوناً إجبارياً، اختر لوناً عشوائياً من القائمة الكبيرة 🌟 )
     const rarityColors = forcedColors || getRandomExtColor();
 
     ctx.save();
@@ -135,36 +148,32 @@ async function drawAchievementCard(ctx, x, y, data, forcedColors = null) {
         ctx.fillText(achievement.description, textX, y + PADDING + 45);
     }
 
-    // --- ( 🌟 تم رفع المكافآت ومحاذاتها لليمين 🌟 ) ---
     ctx.textAlign = 'right'; 
-    const rewardY = y + PADDING + 45; // (نفس مستوى الوصف تقريباً)
+    const rewardY = y + 80; // (مرفوع)
     const rewardXStart = textRightX; 
 
     ctx.font = `bold 20px ${FONT_REWARDS}`; 
     
-    // XP (أزرق)
     ctx.fillStyle = COLOR_XP; 
     const xpText = `${achievement.reward.xp.toLocaleString()}`;
     const xpTextWidth = ctx.measureText(xpText).width;
     ctx.fillText(xpText, rewardXStart - 25, rewardY); 
     ctx.fillText(EMOJI_STAR_CHAR, rewardXStart, rewardY); 
 
-    // Mora (أصفر)
     const moraRewardXStart = rewardXStart - 25 - xpTextWidth - 35; 
     ctx.fillStyle = COLOR_MORA; 
     const moraText = `${achievement.reward.mora.toLocaleString()}`;
     ctx.fillText(moraText, moraRewardXStart - 25, rewardY); 
     ctx.fillText(EMOJI_MORA_CHAR, moraRewardXStart, rewardY);
-    // ------------------------------------------------
 
-    const barY = y + 110; 
+    const barY = y + 110; // (مرفوع)
     drawProgressBar(ctx, textX, barY, barWidth, 15, percent, rarityColors.highlight, rarityColors.glow);
 
     ctx.fillStyle = BASE_COLORS.subText;
     ctx.font = `18px ${FONT_PROGRESS_TEXT}`; 
     ctx.textAlign = 'left';
     const progressText = `التقدم: ${progress.toLocaleString()} / ${achievement.goal.toLocaleString()}`; 
-    ctx.fillText(progressText, textX, barY + 25); 
+    ctx.fillText(progressText, textX, barY + 25); // (مرفوع)
 
     ctx.restore();
 }
@@ -190,7 +199,9 @@ async function generateAchievementPageImage(member, achievementsData, stats) {
 
     let currentY = PAGE_MARGIN + 80;
     for (const data of achievementsData) {
-        // (في القائمة نستخدم ألوان ثابتة عادية)
+        // (هنا لا نمرر لوناً، فستأخذ الدالة اللون العشوائي إذا لم تكن في Daily/Weekly)
+        // ولكن بما أن الإنجازات نادرة، يفضل تثبيتها أو جعلها عشوائية أيضاً
+        // سأجعلها عشوائية لتوحيد الشكل
         await drawAchievementCard(ctx, PAGE_MARGIN, currentY, data, null);
         currentY += ACH_CARD_HEIGHT + PADDING;
     }
@@ -198,23 +209,23 @@ async function generateAchievementPageImage(member, achievementsData, stats) {
     return attachment;
 }
 
-// (إشعار الإنجاز الفردي)
+// (إشعار الإنجاز الفردي - ألوان عشوائية)
 async function generateSingleAchievementAlert(member, achievement) {
     const canvas = createCanvas(ACH_CARD_WIDTH, ACH_CARD_HEIGHT);
     const ctx = canvas.getContext('2d');
     const data = { achievement: achievement, progress: achievement.goal, isDone: true };
-    // ( 🌟 تمرير null يعني لون عشوائي 🌟 )
+    // ( 🌟 تمرير null = لون عشوائي 🌟 )
     await drawAchievementCard(ctx, 0, 0, data, null);
     const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: `achievement-unlocked-${member.id}-${achievement.id}.png` });
     return attachment;
 }
 
-// (إشعار المهمة - عشوائي أيضاً)
+// (إشعار المهمة - ألوان عشوائية)
 async function generateQuestAlert(member, quest, questType) {
     const canvas = createCanvas(ACH_CARD_WIDTH, ACH_CARD_HEIGHT); 
     const ctx = canvas.getContext('2d');
     const data = { achievement: quest, progress: quest.goal, isDone: true };
-    // ( 🌟 تمرير null يعني لون عشوائي 🌟 )
+    // ( 🌟 تمرير null = لون عشوائي 🌟 )
     await drawAchievementCard(ctx, 0, 0, data, null);
     const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: `quest-unlocked-${member.id}-${quest.id}.png` });
     return attachment;
