@@ -1,4 +1,4 @@
-// ( 🌟 Added REST and Routes here in the first line 🌟 )
+// ( 🌟 تم إضافة REST و Routes هنا في السطر الأول 🌟 )
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType, REST, Routes } = require("discord.js");
 const SQLite = require("better-sqlite3");
 const sql = new SQLite('./mainDB.sqlite');
@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. Database Setup
+// 1. إعداد قاعدة البيانات
 // ==================================================================
 sql.pragma('journal_mode = WAL');
 
@@ -19,7 +19,7 @@ try {
     process.exit(1);
 }
 
-// Ensure necessary columns exist
+// ضمان وجود الأعمدة الضرورية
 try { sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
@@ -30,7 +30,7 @@ try { sql.prepare("ALTER TABLE levels ADD COLUMN lastFarmYield INTEGER DEFAULT 0
 try { sql.prepare("CREATE TABLE IF NOT EXISTS quest_achievement_roles (guildID TEXT, roleID TEXT, achievementID TEXT)").run(); } catch (e) {}
 
 // ==================================================================
-// 2. Import Handlers and Files
+// 2. استيراد المعالجات والملفات
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
@@ -44,7 +44,7 @@ const { checkUnjailTask } = require('./handlers/report-handler.js');
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 
 // ==================================================================
-// 3. Client Setup
+// 3. إعداد العميل (Client)
 // ==================================================================
 const client = new Client({
     intents: [
@@ -78,7 +78,7 @@ client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
 client.sql = sql;
 
-// (Optional) Schedule backup if the file exists
+// (اختياري) جدولة النسخ الاحتياطي إذا كان الملف موجوداً
 try { require('./handlers/backup-scheduler.js')(client, sql); } catch(e) {}
 
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
@@ -102,7 +102,7 @@ function getWeekStartDateString() {
 }
 
 // ==================================================================
-// 4. Core System Functions (Levelling, Quests)
+// 4. دوال النظام الأساسية (Levelling, Quests)
 // ==================================================================
 
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
@@ -134,7 +134,6 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
     } catch (err) { console.error("[Level Roles] Error:", err.message); }
 }
 
-// Leveling function (modified to prevent crash with voice)
 client.sendLevelUpMessage = async function(messageOrInteraction, member, newLevel, oldLevel, xpData) {
     try {
         await client.checkAndAwardLevelRoles(member, newLevel);
@@ -153,7 +152,7 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
             if (messageOrInteraction && messageOrInteraction.channel) {
                 channelToSend = messageOrInteraction.channel;
             } else {
-                return; // Exit function if no channel (e.g., voice leveling without settings)
+                return; 
             }
         }
 
@@ -373,13 +372,22 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
           
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
-          
+        
+        // --- ( 🌟 تم إصلاح خطأ الـ SQL هنا: توحيد أسماء المتغيرات 🌟 ) ---
         client.setTotalStats.run({
-            id: totalStatsId, userID, guildID,
-            total_messages: totalStats.total_messages, total_images: totalStats.total_images, total_stickers: totalStats.total_stickers,
-            total_reactions_added: totalStats.total_reactions_added, total_replies_sent: totalStats.total_replies_sent, total_mentions_received: totalStats.total_mentions_received,
-            total_vc_minutes: totalStats.total_vc_minutes, total_disboard_bumps: totalStats.total_disboard_bumps
+            id: totalStatsId, 
+            userID, 
+            guildID,
+            total_messages: totalStats.total_messages, 
+            total_images: totalStats.total_images, 
+            total_stickers: totalStats.total_stickers,
+            total_reactions_added: totalStats.total_reactions_added, 
+            total_replies_sent: totalStats.total_replies_sent, 
+            total_mentions_received: totalStats.total_mentions_received, 
+            total_vc_minutes: totalStats.total_vc_minutes, 
+            total_disboard_bumps: totalStats.total_disboard_bumps
         });
+        // ------------------------------------------------------------------
 
         const member = client.guilds.cache.get(guildID)?.members.cache.get(userID);
         if (member) {
@@ -547,9 +555,12 @@ async function processFarmYields() {
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username}`);
     
-    // ( 🌟 تم إضافة REST هنا لتحديث الأوامر تلقائياً 🌟 )
     const rest = new REST({ version: '10' }).setToken(botToken);
     const commands = [];
+    
+    // ( 🌟 دالة لمنع التكرار 🌟 )
+    const loadedCommandNames = new Set();
+
     function getFiles(dir) {
         const files = fs.readdirSync(dir, { withFileTypes: true });
         let commandFiles = [];
@@ -559,18 +570,41 @@ client.on(Events.ClientReady, async () => {
         }
         return commandFiles;
     }
+    
     const commandFiles = getFiles(path.join(__dirname, 'commands'));
+    
     for (const file of commandFiles) {
-        const command = require(file);
-        if (command.data) { commands.push(command.data.toJSON()); client.commands.set(command.data.name, command); }
-        if (command.name) { client.commands.set(command.name, command); }
+        try {
+            const command = require(file);
+            
+            // ( 🌟 التحقق من التكرار قبل الإضافة 🌟 )
+            const cmdName = command.data ? command.data.name : command.name;
+            
+            if (cmdName) {
+                if (loadedCommandNames.has(cmdName)) {
+                    console.warn(`⚠️ تحذير: تم تجاهل الملف ${file} لأن الأمر "${cmdName}" موجود مسبقاً.`);
+                    continue;
+                }
+                loadedCommandNames.add(cmdName);
+                
+                if (command.data) commands.push(command.data.toJSON());
+                
+                // تسجيل الأمر في الكولكشن للاستخدام
+                if ('execute' in command) {
+                    client.commands.set(cmdName, command);
+                }
+            }
+        } catch (err) {
+            console.error(`[Load Error] ${file}:`, err.message);
+        }
     }
     
+    // ( 🌟 تحديث الأوامر تلقائياً - الآن آمن من التكرار 🌟 )
     try { 
         const CLIENT_ID = client.user.id;
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands }); 
-        console.log(`Successfully reloaded application (/) commands.`); 
-    } catch (error) { console.error(error); }
+        console.log(`✅ Successfully reloaded ${commands.length} application (/) commands.`); 
+    } catch (error) { console.error("[Deploy Error]", error); }
 
     // تجهيز Prepared Statements
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
@@ -581,7 +615,7 @@ client.on(Events.ClientReady, async () => {
     client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
     client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
     client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
-    client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @replies_sent, @mentions_received, @total_vc_minutes, @total_disboard_bumps);");
+    client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @total_replies_sent, @total_mentions_received, @total_vc_minutes, @total_disboard_bumps);");
     client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
     client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
     client.antiRolesCache = new Map();
@@ -649,8 +683,8 @@ client.on(Events.ClientReady, async () => {
     sendDailyMediaUpdate(client, sql);
 }); 
 
-function loadCommands(dir) { const files = fs.readdirSync(dir); for (const file of files) { const fullPath = path.join(dir, file); const stat = fs.statSync(fullPath); if (stat.isDirectory()) { loadCommands(fullPath); } else if (file.endsWith('.js')) { try { const command = require(fullPath); const commandName = command.data ? command.data.name : command.name; if (commandName && 'execute' in command) { client.commands.set(commandName, command); } } catch (error) { console.error(`[CMD Error] ${file}:`, error); } } } }
-loadCommands(path.join(__dirname, 'commands')); console.log("[System] Commands Loaded.");
+// ( 🌟 تم دمج تحميل الأوامر مع ClientReady أعلاه - هذا الجزء أصبح زائد 🌟 )
+// ( ولكن نحتاج لـ events loader )
 
 require('./interaction-handler.js')(client, sql);
 
