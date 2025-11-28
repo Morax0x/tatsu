@@ -1,12 +1,11 @@
 const { EmbedBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ActionRowBuilder, PermissionsBitField, Colors } = require("discord.js");
 
-// (Variable to store the ghost role ID temporarily)
+// (متغير لتخزين رول الروح الهائمة مؤقتاً)
 let GHOST_ROLE_ID = null; 
 
-// (Function to load role settings from the database into cache)
+// (دالة لجلب إعدادات الرتب من قاعدة البيانات إلى الكاش)
 async function loadRoleSettings(sql, antiRolesCache) {
     antiRolesCache.clear();
-    // (Correction: better-sqlite3 is synchronous, doesn't strictly need await but keeping async for compatibility)
     const rows = sql.prepare("SELECT role_id, anti_roles, is_removable FROM role_settings").all();
     for (const row of rows) {
         const antiRolesList = row.anti_roles ? row.anti_roles.split(',').map(id => id.trim()).filter(id => id.length > 0) : [];
@@ -15,17 +14,16 @@ async function loadRoleSettings(sql, antiRolesCache) {
             is_removable: Boolean(row.is_removable)
         });
     }
-    console.log(`[Reaction Roles] Loaded ${antiRolesCache.size} role settings into memory.`);
+    console.log(`[Reaction Roles] تم تحميل ${antiRolesCache.size} إعداد رول في الذاكرة.`);
 }
 
-// (Function to update the ghost role)
+// (دالة لتحديث رول الروح الهائمة)
 function setGhostRole(roleId) {
     GHOST_ROLE_ID = roleId;
 }
 
-// (Main logic for handling interaction)
+// (المنطق الرئيسي لمعالجة التفاعل)
 async function handleReactionRole(interaction, client, sql, antiRolesCache) {
-    // (Using try-catch to prevent bot crashing on errors)
     try {
         await interaction.deferReply({ ephemeral: true });
 
@@ -34,51 +32,50 @@ async function handleReactionRole(interaction, client, sql, antiRolesCache) {
         const member = interaction.member;
         const memberRoleIds = new Set(member.roles.cache.keys());
 
-        // --- ( 🌟 Corrected Here 🌟 ) ---
+        // --- ( جلب القفل ) ---
         const menuMaster = sql.prepare("SELECT is_locked FROM role_menus_master WHERE message_id = ?")
                               .get(interaction.message.id);
-        // -----------------------------
 
         if (!menuMaster) {
-            return interaction.editReply({ content: 'Error: This menu is not registered in the database.' });
+            return interaction.editReply({ content: 'حدث خطأ: هذه القائمة غير مسجلة في قاعدة البيانات.' });
         }
         
         const isLocked = menuMaster.is_locked === 1;
 
-        // --- ( 🌟 Corrected Here - This was the cause of the error 🌟 ) ---
+        // --- ( جلب بيانات الرولات - هذا هو الجزء الذي تم إصلاحه ) ---
         const allMenuRoleData = sql.prepare(`
             SELECT T1.role_id, T2.is_removable, T1.value
             FROM role_menu_items T1
             LEFT JOIN role_settings T2 ON T1.role_id = T2.role_id
             WHERE T1.message_id = ?
-        `).all(interaction.message.id); // <-- The value is passed here
+        `).all(interaction.message.id); 
         // --------------------------------------------------
         
         let conflictDetected = false;
         
-        // 1. Check for mandatory lock (Locked Menus)
+        // 1. تحقق من القفل الإلزامي (القوائم المقفولة)
         if (isLocked) {
             const currentMenuRoles = allMenuRoleData.filter(roleData => memberRoleIds.has(roleData.role_id));
 
             if (currentMenuRoles.length > 0) {
-                // Attempting to remove or change
+                // محاولة الإزالة أو التغيير
                 if (selectedValues.length === 0 || currentMenuRoles.some(roleData => !selectedValues.includes(roleData.value)) || selectedValues.length > 1) { 
-                    const refusalMessage = `✥ Action Denied <:0dalami:1395674712473862185>\n- Your race has already been set and cannot be changed.`;
+                    const refusalMessage = `✥ اجـراء مرفـوض <:0dalami:1395674712473862185>\n- تـم تحديـد عرقـك بالفعـل لا يسمح بتغييـره `;
                     return interaction.editReply({ content: refusalMessage });
                 }
             } else if (selectedValues.length > 1) {
-                // Attempting to select more than one role in the first interaction
-                const refusalMessage = `✥ Action Denied <:0dalami:1395674712473862185>\n- You are only allowed to select one race.`;
+                // محاولة تحديد أكثر من رول في أول تفاعل
+                const refusalMessage = `✥ اجـراء مرفـوض <:0dalami:1395674712473862185>\n- يسمح لك بتحديد عرق واحد لا غير `;
                 return interaction.editReply({ content: refusalMessage });
             }
         }
         
-        // 2. Check for self-conflict and general rules
+        // 2. فحص التعارض الذاتي والقواعد العامة
         const rolesToKeep = new Set();
         const rolesToAdd = [];
         let rolesToStrip = []; 
         
-        if (!isLocked) { // Only for open menus
+        if (!isLocked) { // فقط للقوائم المفتوحة
             for (const selectedValue of selectedValues) {
                 const menuData = allMenuRoleData.find(d => d.value === selectedValue);
                 if (!menuData) continue;
@@ -87,7 +84,7 @@ async function handleReactionRole(interaction, client, sql, antiRolesCache) {
                 const roleSettings = antiRolesCache.get(targetRoleId) || {};
                 const antiRoleIds = roleSettings.anti_roles || [];
                 
-                // Conflict with another role selected in the same interaction
+                // التعارض مع رول آخر تم اختياره في نفس التفاعل
                 const selfConflict = antiRoleIds.some(id => selectedValues.includes(allMenuRoleData.find(d => d.role_id === id)?.value));
 
                 if (selfConflict) {
@@ -100,17 +97,17 @@ async function handleReactionRole(interaction, client, sql, antiRolesCache) {
         if (conflictDetected) { 
             if (GHOST_ROLE_ID && guild.roles.cache.has(GHOST_ROLE_ID)) {
                 if (!memberRoleIds.has(GHOST_ROLE_ID)) {
-                    await member.roles.add(GHOST_ROLE_ID, 'Conflict in selecting anti-roles in the same interaction.');
+                    await member.roles.add(GHOST_ROLE_ID, 'تضارب في اختيار الرتب المضادة في نفس التفاعل.');
                 }
-                const refusalMessage = `✥ You selected conflicting roles, so the action was denied and you were given the Ghost Role! Try selecting your roles again 👻`;
+                const refusalMessage = `✥ حـددت رتـب متضـاربـة لذا تـم رفـض اجراء اعطائك الرتب وتم منحك رتـبة روح هائـمـة ! حـاول تحديد رتبك مجددًا 👻`;
                 return interaction.editReply({ content: refusalMessage });
             } else {
-                const refusalMessage = `✥ Action Denied <:0dalami:1395674712473862185>\n- A conflict occurred between the selected roles in the same interaction.`;
+                const refusalMessage = `✥ اجـراء مرفـوض<:0dalami:1395674712473862185>\n- حدث تعارض بين الرتب المختارة في نفس التفاعل.`;
                 return interaction.editReply({ content: refusalMessage });
             }
         }
 
-        // 2.2. Process Addition and Replacement/Removal
+        // 2.2. معالجة الإضافة والاستبدال/الإزالة
         for (const selectedValue of selectedValues) {
             const menuData = allMenuRoleData.find(d => d.value === selectedValue);
             if (!menuData) continue;
@@ -155,44 +152,45 @@ async function handleReactionRole(interaction, client, sql, antiRolesCache) {
 
         try {
             if (uniqueRolesToStrip.length > 0) {
-                await member.roles.remove(uniqueRolesToStrip, 'Anti-role system / Removing excess roles.');
+                await member.roles.remove(uniqueRolesToStrip, 'نظام الأدوار المضادة / إزالة الأدوار الزائدة.');
             }
             if (uniqueRolesToAdd.length > 0) {
                 await member.roles.add(uniqueRolesToAdd);
             }
         } catch (e) {
             console.error("RR Handler Error (Adding/Removing Roles):", e);
-            return interaction.editReply({ content: "An error occurred while modifying your roles. My role might be lower than the required roles." });
+            return interaction.editReply({ content: "حدث خطأ أثناء تعديل رتبك. قد تكون رتبتي أقل من الرتب المطلوبة." });
         }
 
-        // Build Summary Message
+        // بناء رسالة الملخص
         let responseMsg = '';
         const animatedEmoji = '<a:6HypedDance:1401907058047189127>';
         const idleEmoji = '<:1Hmmmm:1414570720704467035>';
 
         if (uniqueRolesToAdd.length > 0 || uniqueRolesToStrip.length > 0) {
-            responseMsg += `> Roles Updated ${animatedEmoji}\n\n`;
+            responseMsg += `> تـم تحديـث الـرتـب ${animatedEmoji}\n\n`;
 
             if (uniqueRolesToAdd.length > 0) {
                 const addedMentions = uniqueRolesToAdd.map(r => `${r}`).join(' ');
-                responseMsg += `- Roles Added:\n${addedMentions}\n`;
+                responseMsg += `- الرتب المضافة:\n${addedMentions}\n`;
             }
 
             if (uniqueRolesToStrip.length > 0) {
                 const strippedMentions = uniqueRolesToStrip.map(r => `${r}`).join(' ');
-                responseMsg += `- Roles Removed:\n${strippedMentions}\n`;
+                responseMsg += `- الـرتـب الـمزالــة:\n${strippedMentions}\n`;
             }
         } else {
-            responseMsg = `❖ Updated. No roles were added or removed ${idleEmoji}`;
+            responseMsg = `❖ تـم التـحديـث لـم يتـم ازالـة او اضـافـة اي رتـبـة ${idleEmoji}`;
         }
 
         return interaction.editReply({ content: responseMsg });
+
     } catch (error) {
         console.error("[Reaction Role Handler] Fatal Error:", error);
         if (!interaction.replied && !interaction.deferred) {
-             return interaction.reply({ content: "An internal error occurred while processing roles.", ephemeral: true });
+             return interaction.reply({ content: "حدث خطأ داخلي أثناء معالجة الرتب.", ephemeral: true });
         } else {
-             return interaction.editReply({ content: "An internal error occurred while processing roles." });
+             return interaction.editReply({ content: "حدث خطأ داخلي أثناء معالجة الرتب." });
         }
     }
 }
