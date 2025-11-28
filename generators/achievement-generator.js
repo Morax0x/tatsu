@@ -1,33 +1,43 @@
 const { createCanvas, registerFont, loadImage } = require('canvas');
 const path = require('path');
 const { AttachmentBuilder } = require('discord.js');
-const fs = require('fs');
 
-// --- ( 1. تسجيل الخطوط - للعربي فقط ) ---
+// --- ( 1. Font Registration ) ---
 try {
-    const mainFontsDir = path.join(__dirname, '..', 'fonts');
+    const fontsDir = path.join(__dirname, '..', 'fonts');
 
-    // نسجل الخط العربي فقط (Bein) للنصوص
-    const mainFontPath = path.join(mainFontsDir, 'bein-ar-normal.ttf');
-    if (!fs.existsSync(mainFontPath)) {
-        throw new Error("ملف الخط 'bein-ar-normal.ttf' غير موجود في المجلد 'fonts'.");
-    }
-    registerFont(mainFontPath, { family: 'Font-Arabic-Strict' });
+    // Register the main Arabic font (Bein)
+    registerFont(path.join(fontsDir, 'bein-ar-normal.ttf'), { family: 'Font-Main' }); 
 
-    console.log("[Achievement-Gen] تم تسجيل الخط العربي (Bein) بنجاح.");
+    // Register the fallback Emoji font
+    const emojiFontPath = path.join(fontsDir, 'NotoEmoji.ttf'); 
+    registerFont(emojiFontPath, { family: 'NotoEmoji' }); 
+
+    console.log("[Achievement-Gen] Fonts registered successfully (Bein + NotoEmoji).");
 
 } catch (err) {
-    console.error("!!! خطأ فادح في تسجيل الخطوط:", err.message);
+    if (err.message.includes('bein-ar-normal.ttf')) {
+        console.error("!!! Fatal Error: 'bein-ar-normal.ttf' not found in 'fonts' folder.");
+    } else {
+        console.error("!!! Fatal Error registering fonts:", err.message);
+    }
 }
+// --- ( End Registration ) ---
 
-// --- ( 2. تعريف الخطوط ) ---
-const FONT_MAIN = '"Font-Arabic-Strict"'; 
+
+// --- ( 2. Font Definitions ) ---
+const FONT_MAIN = '"Font-Main", "NotoEmoji"'; 
+const FONT_EMOJI = '"NotoEmoji"'; // Only for the hexagonal icon
+
+// Apply the main font to all text elements
 const FONT_ACH_TITLE = FONT_MAIN;
 const FONT_PAGE_TITLE = FONT_MAIN; 
 const FONT_ACH_DESCRIPTION = FONT_MAIN;
 const FONT_PAGE_COUNT = FONT_MAIN;
 const FONT_PROGRESS_TEXT = FONT_MAIN; 
 const FONT_REWARDS = FONT_MAIN; 
+// --- ( End Definitions ) ---
+
 
 const RARITY_COLORS_ACH = {
     common: { base: '#1a4b2a', frame: '#2d8649', highlight: '#34eb6e', glow: '#69ff9c' }, 
@@ -38,9 +48,8 @@ const RARITY_COLORS_ACH = {
     default: { base: '#36393f', frame: '#54575c', highlight: '#99aab5', glow: '#ffffff' }
 };
 
-// ( 🌟 الألوان المخصصة للجوائز 🌟 )
-const COLOR_XP = '#349eeb'; // أزرق
-const COLOR_MORA = '#ebc934'; // أصفر
+const COLOR_XP = RARITY_COLORS_ACH.rare.highlight; // Blue
+const COLOR_MORA = RARITY_COLORS_ACH.legendary.highlight; // Yellow
 
 const BASE_COLORS = {
     background: '#1a1827', 
@@ -57,28 +66,8 @@ const ACH_CARD_WIDTH = 800;
 const ACH_CARD_HEIGHT = 180; 
 const PAGE_WIDTH = ACH_CARD_WIDTH + (PAGE_MARGIN * 2);
 
-// --- (دالة ذكية لتحويل الإيموجي إلى رابط صورة) ---
-function getEmojiUrl(emoji) {
-    if (!emoji) return null;
-    const customMatch = emoji.match(/<?(a)?:?(\w{2,32}):(\d{17,19})>?/);
-    if (customMatch) {
-        const ext = customMatch[1] ? 'gif' : 'png';
-        return `https://cdn.discordapp.com/emojis/${customMatch[3]}.${ext}`;
-    }
-    try {
-        if (/^[a-zA-Z0-9]+$/.test(emoji)) return null;
-        const codePoints = [...emoji]
-            .map(c => c.codePointAt(0).toString(16))
-            .filter(cp => cp !== 'fe0f') 
-            .join('-');
-        return `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/${codePoints}.png`;
-    } catch (e) {
-        return null; 
-    }
-}
-
 // ===========================================
-// (دوال الرسم المساعدة)
+// (Helper Drawing Functions)
 // ===========================================
 function drawRoundedRect(ctx, x, y, width, height, radius) { 
     ctx.beginPath();
@@ -104,7 +93,7 @@ function drawProgressBar(ctx, x, y, width, height, progressPercent, colorStart, 
         progressGradient.addColorStop(0, colorStart);
         progressGradient.addColorStop(1, colorEnd);
         ctx.fillStyle = progressGradient;
-
+        
         const effectiveProgressWidth = Math.max(height, width * progressPercent);
         drawRoundedRect(ctx, x, y, effectiveProgressWidth, height, height / 2);
         ctx.fill();
@@ -137,25 +126,22 @@ function drawWavyBackground(ctx, x, y, width, height, color1, color2) {
 }
 
 // ===========================================
-// (1. دوال الإنجازات - ASYNC)
+// (1. Main Achievement Card Function)
 // ===========================================
 
-async function drawAchievementCard(ctx, x, y, data) {
+function drawAchievementCard(ctx, x, y, data) {
     const { achievement, progress, isDone } = data;
     const percent = Math.min(1, Math.max(0, progress / achievement.goal));
     const rarityColors = RARITY_COLORS_ACH[achievement.rarity] || RARITY_COLORS_ACH.default;
 
     ctx.save();
     drawWavyBackground(ctx, x, y, ACH_CARD_WIDTH, ACH_CARD_HEIGHT, rarityColors.base, '#11101a');
-
-    // الإطار والتوهج
     ctx.strokeStyle = rarityColors.highlight;
     ctx.shadowColor = rarityColors.highlight;
     ctx.shadowBlur = isDone ? 20 : 10; 
     ctx.lineWidth = 3;
     drawRoundedRect(ctx, x, y, ACH_CARD_WIDTH, ACH_CARD_HEIGHT, 15);
     ctx.stroke();
-
     ctx.strokeStyle = rarityColors.glow;
     ctx.shadowColor = rarityColors.glow;
     ctx.shadowBlur = isDone ? 10 : 5; 
@@ -165,7 +151,6 @@ async function drawAchievementCard(ctx, x, y, data) {
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
 
-    // الشكل السداسي
     const hexRadius = 55;
     const hexX = x + PADDING + hexRadius;
     const hexY = y + ACH_CARD_HEIGHT / 2;
@@ -180,31 +165,24 @@ async function drawAchievementCard(ctx, x, y, data) {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // 🌟 رسم الإيموجي كصورة 🌟
-    try {
-        const emojiStr = achievement.emoji || '🏆'; 
-        const emojiUrl = getEmojiUrl(emojiStr);
-
-        if (emojiUrl) {
-            const img = await loadImage(emojiUrl);
-            ctx.drawImage(img, hexX - 30, hexY - 30, 60, 60);
-        }
-    } catch (err) {
-        // يترك فارغاً عند الخطأ
-    }
+    // --- ( 🌟 Emoji Font Only 🌟 ) ---
+    ctx.font = `60px ${FONT_EMOJI}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = BASE_COLORS.text;
+    ctx.fillText(achievement.emoji || '🏆', hexX, hexY);
+    // ---------------------------------
 
     const textX = hexX + hexRadius + PADDING;
     const textRightX = x + ACH_CARD_WIDTH - PADDING;
     const barWidth = (x + ACH_CARD_WIDTH - PADDING) - textX;
 
-    // العنوان
     ctx.fillStyle = BASE_COLORS.text;
     ctx.font = `32px ${FONT_ACH_TITLE}`; 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillText(achievement.name, textX, y + PADDING);
 
-    // الوصف
     if (achievement.description) {
         ctx.fillStyle = BASE_COLORS.subText;
         ctx.font = `18px ${FONT_ACH_DESCRIPTION}`; 
@@ -212,36 +190,41 @@ async function drawAchievementCard(ctx, x, y, data) {
         ctx.fillText(achievement.description, textX, y + PADDING + 45);
     }
 
-    // الجوائز (محاذاة مرفوعة)
     ctx.textAlign = 'right'; 
-    const rewardY = y + 65; // ( 🌟 تم الرفع للمحاذاة 🌟 )
+    // --- ( 🌟 Lifted Up 🌟 ) ---
+    const rewardY = y + 80; // (Was 95)
+    // ---------------------------
     const rewardXStart = textRightX; 
 
     ctx.font = `bold 20px ${FONT_REWARDS}`; 
-
-    // ( 1. رسم الـ XP باللون الأزرق )
+    
+    // ( 1. XP - Blue )
     ctx.fillStyle = COLOR_XP; 
     const xpText = `${achievement.reward.xp.toLocaleString()}`;
     const xpTextWidth = ctx.measureText(xpText).width;
     ctx.fillText(xpText, rewardXStart - 25, rewardY); 
     ctx.fillText(EMOJI_STAR_CHAR, rewardXStart, rewardY); 
 
-    // ( 2. رسم المورا باللون الأصفر )
+    // ( 2. Mora - Yellow )
     const moraRewardXStart = rewardXStart - 25 - xpTextWidth - 35; 
     ctx.fillStyle = COLOR_MORA; 
     const moraText = `${achievement.reward.mora.toLocaleString()}`;
     ctx.fillText(moraText, moraRewardXStart - 25, rewardY); 
     ctx.fillText(EMOJI_MORA_CHAR, moraRewardXStart, rewardY);
 
-    // التقدم (محاذاة مرفوعة)
-    const barY = y + 103; // ( 🌟 تم الرفع للمحاذاة 🌟 )
+    // --- ( 🌟 Lifted Up 🌟 ) ---
+    const barY = y + 110; // (Was 120+)
+    // ---------------------------
     drawProgressBar(ctx, textX, barY, barWidth, 15, percent, rarityColors.highlight, rarityColors.glow);
 
     ctx.fillStyle = BASE_COLORS.subText;
     ctx.font = `18px ${FONT_PROGRESS_TEXT}`; 
     ctx.textAlign = 'left';
     const progressText = `التقدم: ${progress.toLocaleString()} / ${achievement.goal.toLocaleString()}`; 
-    ctx.fillText(progressText, textX, barY + 25); // ( 🌟 تم الرفع للمحاذاة 🌟 )
+    
+    // --- ( 🌟 Lifted Up 🌟 ) ---
+    ctx.fillText(progressText, textX, barY + 25); 
+    // ---------------------------
 
     ctx.restore();
 }
@@ -259,7 +242,7 @@ async function generateAchievementPageImage(member, achievementsData, stats) {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(`إنجازات ${member.displayName}`, PAGE_MARGIN + PADDING, avatarY + avatarSize / 2);
-
+    
     ctx.fillStyle = BASE_COLORS.subText;
     ctx.font = `24px ${FONT_PAGE_COUNT}`; 
     ctx.textAlign = 'right';
@@ -267,7 +250,7 @@ async function generateAchievementPageImage(member, achievementsData, stats) {
 
     let currentY = PAGE_MARGIN + 80;
     for (const data of achievementsData) {
-        await drawAchievementCard(ctx, PAGE_MARGIN, currentY, data);
+        drawAchievementCard(ctx, PAGE_MARGIN, currentY, data);
         currentY += ACH_CARD_HEIGHT + PADDING;
     }
     const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: `achievements-page-${member.id}-${stats.page}.png` });
@@ -282,7 +265,7 @@ async function generateSingleAchievementAlert(member, achievement) {
         progress: achievement.goal,
         isDone: true 
     };
-    await drawAchievementCard(ctx, 0, 0, data);
+    drawAchievementCard(ctx, 0, 0, data);
     const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: `achievement-unlocked-${member.id}-${achievement.id}.png` });
     return attachment;
 }
@@ -293,9 +276,10 @@ async function generateQuestAlert(member, quest, questType) {
 
     let questAsAchievement = { ...quest };
 
+    // (Random color logic will be handled by the caller or defaulted)
     if (questType === 'daily') {
         questAsAchievement.rarity = 'common'; 
-    } else { // (weekly or rare)
+    } else { 
         questAsAchievement.rarity = 'rare'; 
     }
 
@@ -305,7 +289,7 @@ async function generateQuestAlert(member, quest, questType) {
         isDone: true 
     };
 
-    await drawAchievementCard(ctx, 0, 0, data);
+    drawAchievementCard(ctx, 0, 0, data);
 
     const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: `quest-unlocked-${member.id}-${quest.id}.png` });
     return attachment;
