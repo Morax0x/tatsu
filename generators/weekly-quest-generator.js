@@ -27,11 +27,21 @@ const FONT_QUEST_TITLE = FONT_MAIN;
 const FONT_ACH_DESCRIPTION = FONT_MAIN;
 const FONT_COUNTDOWN = FONT_MAIN;
 
-// (ألوان المهام الأسبوعية - أزرق Rare)
+// (قائمة الألوان المتاحة للعشوائية - نفس اليومي)
 const RARITY_COLORS = {
-    rare: { base: '#1a3e4b', frame: '#2d6a86', highlight: '#349eeb', glow: '#69bfff' }, 
-    legendary: { base: '#4b431a', frame: '#867b2d', highlight: '#ebc934', glow: '#fff369' }, 
+    common: { base: '#1a4b2a', frame: '#2d8649', highlight: '#34eb6e', glow: '#69ff9c' }, // أخضر
+    rare: { base: '#1a3e4b', frame: '#2d6a86', highlight: '#349eeb', glow: '#69bfff' }, // أزرق
+    epic: { base: '#431a4b', frame: '#7b2d86', highlight: '#b934eb', glow: '#d969ff' }, // بنفسجي
+    legendary: { base: '#4b431a', frame: '#867b2d', highlight: '#ebc934', glow: '#fff369' }, // ذهبي
+    mythic: { base: '#4b1a1a', frame: '#862d2d', highlight: '#eb3434', glow: '#ff6969' }, // أحمر
 };
+
+// ( دالة لاختيار لون عشوائي )
+function getRandomRarityColor() {
+    const keys = Object.keys(RARITY_COLORS);
+    const randomKey = keys[Math.floor(Math.random() * keys.length)];
+    return RARITY_COLORS[randomKey];
+}
 
 // ( 🌟 الألوان المخصصة للجوائز 🌟 )
 const COLOR_XP = '#349eeb'; // أزرق
@@ -149,8 +159,9 @@ async function drawQuestCard(ctx, x, y, questData) {
     const isDone = progress >= quest.goal;
     const percent = Math.min(1, Math.max(0, progress / quest.goal));
 
-    // (المهام الأسبوعية تستخدم اللون الأزرق Rare)
-    const rarityColors = RARITY_COLORS.rare;
+    // --- ( 🌟 التعديل هنا: اختيار لون عشوائي بدلاً من الثابت 🌟 ) ---
+    const rarityColors = getRandomRarityColor(); 
+    // --------------------------------------------------------
 
     ctx.save();
 
