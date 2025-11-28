@@ -1,12 +1,13 @@
+// ( 🌟 Added REST and Routes here in the first line 🌟 )
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType, REST, Routes } = require("discord.js");
 const SQLite = require("better-sqlite3");
+const sql = new SQLite('./mainDB.sqlite');
 const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
 // 1. Database Setup
 // ==================================================================
-const sql = new SQLite('./mainDB.sqlite');
 sql.pragma('journal_mode = WAL');
 
 try {
@@ -15,7 +16,7 @@ try {
 } catch (err) {
     console.error("!!! Database Setup Fatal Error !!!");
     console.error(err);
-    process.exit(1); // Stop if DB fails
+    process.exit(1);
 }
 
 // Ensure critical columns exist (Migration)
@@ -27,13 +28,6 @@ try { sql.prepare("ALTER TABLE settings ADD COLUMN countingChannelID TEXT").run(
 try { sql.prepare("ALTER TABLE settings ADD COLUMN questChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE levels ADD COLUMN lastFarmYield INTEGER DEFAULT 0").run(); } catch (e) {} 
 try { sql.prepare("CREATE TABLE IF NOT EXISTS quest_achievement_roles (guildID TEXT, roleID TEXT, achievementID TEXT)").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN shopChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN bumpChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRoleAnchorID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelTitle TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelDescription TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelImage TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelColor TEXT").run(); } catch (e) {}
 
 // ==================================================================
 // 2. Import Handlers and Files
@@ -42,7 +36,7 @@ const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateN
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
 
 const questsConfig = require('./json/quests-config.json');
-const farmAnimals = require('./json/farm-animals.json'); 
+const farmAnimals = require('./json/farm-animals.json');
 
 const { generateSingleAchievementAlert, generateQuestAlert } = require('./generators/achievement-generator.js'); 
 const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./handlers/giveaway-handler.js');
@@ -379,12 +373,19 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
           
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
-          
+        
         client.setTotalStats.run({
-            id: totalStatsId, userID, guildID,
-            total_messages: totalStats.total_messages, total_images: totalStats.total_images, total_stickers: totalStats.total_stickers,
-            total_reactions_added: totalStats.total_reactions_added, total_replies_sent: totalStats.total_replies_sent, total_mentions_received: totalStats.total_mentions_received,
-            total_vc_minutes: totalStats.total_vc_minutes, total_disboard_bumps: totalStats.total_disboard_bumps
+            id: totalStatsId, 
+            userID, 
+            guildID,
+            total_messages: totalStats.total_messages, 
+            total_images: totalStats.total_images, 
+            total_stickers: totalStats.total_stickers,
+            total_reactions_added: totalStats.total_reactions_added, 
+            total_replies_sent: totalStats.total_replies_sent, 
+            total_mentions_received: totalStats.total_mentions_received, 
+            total_vc_minutes: totalStats.total_vc_minutes, 
+            total_disboard_bumps: totalStats.total_disboard_bumps
         });
 
         const member = client.guilds.cache.get(guildID)?.members.cache.get(userID);
