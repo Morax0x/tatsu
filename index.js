@@ -1,4 +1,4 @@
-// ( 🌟 تم إضافة REST و Routes هنا في السطر الأول 🌟 )
+// ( 🌟 Added REST and Routes here in the first line 🌟 )
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType, REST, Routes } = require("discord.js");
 const SQLite = require("better-sqlite3");
 const sql = new SQLite('./mainDB.sqlite');
@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. إعداد قاعدة البيانات
+// 1. Database Setup
 // ==================================================================
 sql.pragma('journal_mode = WAL');
 
@@ -19,7 +19,7 @@ try {
     process.exit(1);
 }
 
-// ضمان وجود الأعمدة الضرورية
+// Ensure necessary columns exist
 try { sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
@@ -30,7 +30,7 @@ try { sql.prepare("ALTER TABLE levels ADD COLUMN lastFarmYield INTEGER DEFAULT 0
 try { sql.prepare("CREATE TABLE IF NOT EXISTS quest_achievement_roles (guildID TEXT, roleID TEXT, achievementID TEXT)").run(); } catch (e) {}
 
 // ==================================================================
-// 2. استيراد المعالجات والملفات
+// 2. Import Handlers and Files
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
@@ -44,7 +44,7 @@ const { checkUnjailTask } = require('./handlers/report-handler.js');
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 
 // ==================================================================
-// 3. إعداد العميل (Client)
+// 3. Client Setup
 // ==================================================================
 const client = new Client({
     intents: [
@@ -78,7 +78,7 @@ client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
 client.sql = sql;
 
-// (اختياري) جدولة النسخ الاحتياطي إذا كان الملف موجوداً
+// (Optional) Schedule backup if the file exists
 try { require('./handlers/backup-scheduler.js')(client, sql); } catch(e) {}
 
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
@@ -102,7 +102,7 @@ function getWeekStartDateString() {
 }
 
 // ==================================================================
-// 4. دوال النظام الأساسية (Levelling, Quests)
+// 4. Core System Functions (Levelling, Quests)
 // ==================================================================
 
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
@@ -134,6 +134,7 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
     } catch (err) { console.error("[Level Roles] Error:", err.message); }
 }
 
+// Leveling function (modified to prevent crash with voice)
 client.sendLevelUpMessage = async function(messageOrInteraction, member, newLevel, oldLevel, xpData) {
     try {
         await client.checkAndAwardLevelRoles(member, newLevel);
@@ -152,7 +153,7 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
             if (messageOrInteraction && messageOrInteraction.channel) {
                 channelToSend = messageOrInteraction.channel;
             } else {
-                return; 
+                return; // Exit function if no channel (e.g., voice leveling without settings)
             }
         }
 
