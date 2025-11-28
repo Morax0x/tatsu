@@ -110,21 +110,22 @@ async function handleCustomRoleInteraction(i, client, sql) {
             }
 
             try {
-                // --- ( 🌟 التعديل هنا: إنشاء الرتبة بدون تحديد الموقع أولاً 🌟 ) ---
+                // --- ( 🌟 إضافة التنظيف قبل الإنشاء 🌟 ) ---
+                // حذف أي سجل قديم لهذا المستخدم في هذا السيرفر
+                sql.prepare("DELETE FROM custom_roles WHERE guildID = ? AND userID = ?").run(guild.id, memberId);
+                // ------------------------------------------
+
                 const newRole = await guild.roles.create({
                     name: roleName,
                     color: Math.floor(Math.random() * 16777215),
                     mentionable: true
                 });
                 
-                // (محاولة وضع الرتبة في المكان الصحيح بعد الإنشاء)
                 try {
                     await newRole.setPosition(anchorRole.position - 1);
                 } catch (posErr) {
                     console.warn("فشل تحديد موقع الرتبة المخصصة:", posErr.message);
-                    // (لن نوقف العملية، سيتم إنشاء الرتبة لكن في مكان عشوائي)
                 }
-                // -------------------------------------------------------------
 
                 sql.prepare("INSERT INTO custom_roles (id, guildID, userID, roleID) VALUES (?, ?, ?, ?)")
                    .run(`${guild.id}-${memberId}`, guild.id, memberId, newRole.id);
