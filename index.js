@@ -1,12 +1,12 @@
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType, REST, Routes } = require("discord.js");
 const SQLite = require("better-sqlite3");
+const sql = new SQLite('./mainDB.sqlite');
 const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. Database Setup
+// 1. إعداد قاعدة البيانات
 // ==================================================================
-const sql = new SQLite('./mainDB.sqlite');
 sql.pragma('journal_mode = WAL');
 
 try {
@@ -18,7 +18,7 @@ try {
     process.exit(1);
 }
 
-// Ensure critical columns exist (Migration)
+// ضمان وجود الأعمدة الضرورية
 try { sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
@@ -27,17 +27,9 @@ try { sql.prepare("ALTER TABLE settings ADD COLUMN countingChannelID TEXT").run(
 try { sql.prepare("ALTER TABLE settings ADD COLUMN questChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE levels ADD COLUMN lastFarmYield INTEGER DEFAULT 0").run(); } catch (e) {} 
 try { sql.prepare("CREATE TABLE IF NOT EXISTS quest_achievement_roles (guildID TEXT, roleID TEXT, achievementID TEXT)").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN shopChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN bumpChannelID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRoleAnchorID TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelTitle TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelDescription TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelImage TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelColor TEXT").run(); } catch (e) {}
-try { sql.prepare("ALTER TABLE settings ADD COLUMN lastQuestPanelChannelID TEXT").run(); } catch (e) {}
 
 // ==================================================================
-// 2. Import Handlers and Files
+// 2. استيراد المعالجات والملفات
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
@@ -51,7 +43,7 @@ const { checkUnjailTask } = require('./handlers/report-handler.js');
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 
 // ==================================================================
-// 3. Client Setup
+// 3. إعداد العميل (Client)
 // ==================================================================
 const client = new Client({
     intents: [
@@ -109,7 +101,7 @@ function getWeekStartDateString() {
 }
 
 // ==================================================================
-// 4. Core System Functions (Levelling, Quests)
+// 4. دوال النظام الأساسية (Levelling, Quests)
 // ==================================================================
 
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
@@ -384,7 +376,6 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         
-        // --- ( 🌟 تصحيح: استخدام الأسماء الصحيحة للأعمدة 🌟 ) ---
         client.setTotalStats.run({
             id: totalStatsId, 
             userID, 
@@ -398,7 +389,6 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
             total_vc_minutes: totalStats.total_vc_minutes, 
             total_disboard_bumps: totalStats.total_disboard_bumps
         });
-        // -----------------------------------------------------
 
         const member = client.guilds.cache.get(guildID)?.members.cache.get(userID);
         if (member) {
@@ -560,6 +550,41 @@ async function processFarmYields() {
     } catch (err) { console.error("[Farm] Error processing yields:", err); }
 }
 
+// 5.4 نظام الرتب المؤقتة (الحل لمشكلة بقاء الرتب)
+async function checkTemporaryRoles(client) {
+    const now = Date.now();
+    // جلب الرتب المنتهية
+    const expiredRoles = sql.prepare("SELECT * FROM temporary_roles WHERE expiresAt <= ?").all(now);
+
+    for (const record of expiredRoles) {
+        try {
+            const guild = client.guilds.cache.get(record.guildID);
+            if (!guild) {
+                // إذا خرج البوت من السيرفر، نحذف السجل
+                sql.prepare("DELETE FROM temporary_roles WHERE userID = ? AND guildID = ? AND roleID = ?").run(record.userID, record.guildID, record.roleID);
+                continue;
+            }
+
+            const member = await guild.members.fetch(record.userID).catch(() => null);
+            const role = guild.roles.cache.get(record.roleID);
+
+            if (member && role) {
+                // سحب الرتبة
+                await member.roles.remove(role, "انتهاء مدة الرتبة المؤقتة (متجر/جائزة)");
+                console.log(`[Temp Roles] Removed role ${role.name} from ${member.user.tag}`);
+                
+                // (اختياري: إرسال رسالة للعضو)
+                // try { await member.send(`⏳ انتهت مدة رتبة **${role.name}** وتم سحبها منك.`); } catch(e) {}
+            }
+        } catch (e) {
+            console.error(`[Temp Roles Error]: ${e.message}`);
+        }
+
+        // حذف السجل من قاعدة البيانات في كل الأحوال لمنع التكرار
+        sql.prepare("DELETE FROM temporary_roles WHERE userID = ? AND guildID = ? AND roleID = ?").run(record.userID, record.guildID, record.roleID);
+    }
+}
+
 // ==================================================================
 // 6. تشغيل البوت والمجدولات
 // ==================================================================
@@ -664,6 +689,9 @@ client.on(Events.ClientReady, async () => {
     checkDailyStreaks(client, sql); setInterval(() => checkDailyStreaks(client, sql), 3600000); 
     checkDailyMediaStreaks(client, sql); setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); 
     checkUnjailTask(client); setInterval(() => checkUnjailTask(client), 5 * 60 * 1000); 
+
+    // ( 🌟 تشغيل فاحص الرتب المؤقتة 🌟 )
+    checkTemporaryRoles(client); setInterval(() => checkTemporaryRoles(client), 60000); // كل دقيقة
     
     let lastReminderSentHour = -1; let lastUpdateSentHour = -1; let lastWarningSentHour = -1; 
     setInterval(() => { 
