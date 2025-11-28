@@ -1,40 +1,41 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionsBitField, ApplicationCommandOptionType } = require("discord.js");
-const { loadRoleSettings, setGhostRole } = require("../../handlers/reaction-role-handler.js");
-
-function cleanRoleIds(input) {
-    if (!input) return [];
-    return input.split(/[\s,]+/)
-        .map(id => id.trim())
-        .filter(id => id.length > 0 && !isNaN(id));
-}
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, PermissionsBitField, ChannelType, ApplicationCommandOptionType } = require("discord.js");
+const axios = require('axios'); 
+// ( 🌟 تمت إضافة هذا السطر المهم 🌟 )
+const { loadRoleSettings } = require("../../handlers/reaction-role-handler.js");
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('اعدادات-الرولات')
-        .setDescription('تحديد خصائص الرول (مضاد، قابل للإزالة) أو رول الروح.')
+        .setName('ادوات-الرتب')
+        .setDescription('أدوات إضافية لإدارة قوائم الرتب.')
         .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageRoles)
         .addSubcommand(sub => sub
-            .setName('اعدادات-رول')
-            .setDescription('تحديد خصائص الرول (مضاد، قابل للإزالة).')
-            .addRoleOption(opt => opt.setName('الرول_المستهدف').setDescription('الرول المراد إعداد خصائصه.').setRequired(true))
-            .addStringOption(opt => opt.setName('آيديات_مضادة').setDescription('آيديات الرولات التي ستُزال (فواصل، فراغات).').setRequired(false))
-            .addBooleanOption(opt => opt.setName('قابل_للإزالة').setDescription('هل يمكن للعضو إزالة الرول ذاتيًا؟ (الافتراضي: نعم)').setRequired(false))
+            .setName('قفل-القائمة')
+            .setDescription('يمنع العضو من تغيير اختياره بمجرد أخذ رول من القائمة.')
+            .addStringOption(opt => opt.setName('آيدي_الرسالة').setDescription('آيدي رسالة القائمة المراد قفلها.').setRequired(true))
+            .addBooleanOption(opt => opt.setName('حالة_القفل').setDescription('هل تريد قفل القائمة (True) أم فتحها (False)؟').setRequired(true))
         )
         .addSubcommand(sub => sub
-            .setName('رول-الروح')
-            .setDescription('يحدد رول الروح الهائمة الذي يُمنح في حالة تضارب الرتب.')
-            .addRoleOption(opt => opt.setName('آيدي_الرول').setDescription('الرول الذي سيُمنح عند التضارب.').setRequired(true))
+            .setName('تسجيل-قائمة')
+            .setDescription('يجعل البوت يتذكر قائمة أدوار موجودة لتعديلها.')
+            .addStringOption(opt => opt.setName('آيدي_الرسالة').setDescription('آيدي رسالة قائمة الأدوار الموجودة.').setRequired(true))
         )
         .addSubcommand(sub => sub
-            .setName('عرض-الاعدادات')
-            .setDescription('يعرض جميع إعدادات الرولات المضادة والقابلة للإزالة حالياً في إيمبد.')
+            .setName('استيراد-اعدادات')
+            .setDescription('يستورد إعدادات الرولات المضادة من ملف JSON مُرفق.')
+            .addAttachmentOption(opt => opt.setName('ملف_الإعدادات').setDescription('ملف JSON الذي يحتوي على إعدادات الرولات.').setRequired(true))
+        )
+        .addSubcommand(sub => sub
+            .setName('نسخ-إيمبد')
+            .setDescription('ينسخ إيمبد قائمة الأدوار إلى قناة جديدة.')
+            .addStringOption(opt => opt.setName('آيدي_الرسالة_الأصلية').setDescription('آيدي رسالة الإيمبد المراد نسخها.').setRequired(true))
+            .addChannelOption(opt => opt.setName('القناة_الجديدة').setDescription('القناة التي سيتم إرسال النسخة إليها.').setRequired(true).addChannelTypes(ChannelType.GuildText))
         ),
-
-    name: 'rr-settings', // (اسم احتياطي للبريفكس)
+        
+    name: 'rr-other', 
     category: "Admin",
-
+    
     async execute(interactionOrMessage, args) {
-
+        
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         let interaction, message, guild, client, member;
 
@@ -45,9 +46,9 @@ module.exports = {
             member = interaction.member;
             await interaction.deferReply({ ephemeral: true });
         } else {
-            return interactionOrMessage.reply("هذا الأمر متاح كأمر سلاش (/) فقط.");
+             return interactionOrMessage.reply("هذا الأمر متاح كأمر سلاش (/) فقط.");
         }
-
+        
         const sql = client.sql;
 
         if (!member.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
@@ -55,105 +56,193 @@ module.exports = {
         }
 
         const subcommand = interaction.options.getSubcommand();
+        
+        if (subcommand === 'قفل-القائمة') {
+            const messageId = interaction.options.getString('آيدي_الرسالة');
+            const shouldLock = interaction.options.getBoolean('حالة_القفل');
+            const isLockedInt = shouldLock ? 1 : 0;
 
-        if (subcommand === 'اعدادات-رول') {
-            const role = interaction.options.getRole('الرول_المستهدف');
-            const antiRolesIdsStr = interaction.options.getString('آيديات_مضادة') || '';
-            const removable = interaction.options.getBoolean('قابل_للإزالة') ?? true;
+            const result = await sql.prepare("UPDATE role_menus_master SET is_locked = ? WHERE message_id = ?").run(isLockedInt, messageId);
 
-            const antiRolesList = cleanRoleIds(antiRolesIdsStr);
+            if (result.changes === 0) {
+                return interaction.editReply({ content: '❌ هذا ليس آيدي رسالة قائمة أدوار مسجلة.' });
+            }
+            
+            const status = shouldLock ? 'مغلقة' : 'مفتوحة';
+            return interaction.editReply({ content: `✅ تم تحديث حالة القائمة (آيدي: \`${messageId}\`) إلى: **${status}**.` });
+        
+        } else if (subcommand === 'تسجيل-قائمة') {
+            const messageId = interaction.options.getString('آيدي_الرسالة');
 
-            if (antiRolesList.includes(role.id)) {
-                return interaction.editReply({ content: "❌ لا يمكن تحديد الرول المضاد كـ الرول نفسه." });
+            const message = await interaction.channel.messages.fetch(messageId).catch(() => null);
+            if (!message) {
+                return interaction.editReply({ content: '❌ لم أستطع العثور على الرسالة بهذا الآيدي.' });
             }
 
-            const antiRolesStr = antiRolesList.join(',');
-            const isRemovableInt = removable ? 1 : 0;
+            const selectMenu = message.components[0]?.components[0];
+            if (!selectMenu || selectMenu.type !== 3) {
+                return interaction.editReply({ content: '❌ الرسالة لا تحتوي على قائمة اختيار (Select Menu).' });
+            }
+            
+            const existingEntry = await sql.prepare("SELECT message_id FROM role_menus_master WHERE message_id = ?").get(messageId);
+            if (existingEntry) {
+                return interaction.editReply({ content: 'ℹ️ هذه القائمة مسجلة بالفعل في قاعدة بيانات البوت.' });
+            }
 
-            await sql.prepare(`
-                INSERT INTO role_settings (role_id, anti_roles, is_removable)
-                VALUES (?, ?, ?)
-                ON CONFLICT(role_id) DO UPDATE SET
-                    anti_roles = excluded.anti_roles,
-                    is_removable = excluded.is_removable
-            `).run(role.id, antiRolesStr, isRemovableInt);
+            const menuCustomId = selectMenu.customId || `rr_manual_${Date.now()}`;
+            
+            await sql.prepare("INSERT INTO role_menus_master (message_id, custom_id, is_locked) VALUES (?, ?, ?)")
+                .run(messageId, menuCustomId, 0);
 
-            await loadRoleSettings(sql, client.antiRolesCache);
+            const optionsToInsert = [];
+            let optionsCount = 0;
 
-            const embed = new EmbedBuilder()
-                .setTitle(`✅ تم تحديث خصائص الرول ${role.name}`)
-                .addFields(
-                    { name: "الرولات المضادة:", value: antiRolesList.length > 0 ? antiRolesList.map(r_id => `<@&${r_id}>`).join(', ') : "لا يوجد", inline: false },
-                    { name: "قابل للإزالة ذاتيًا:", value: removable ? "نعم" : "لا (رول ثابت)", inline: false }
-                )
-                .setColor('Green');
+            for (const option of selectMenu.options) {
+                let roleId = null; 
+                
+                const roleIdMatch = option.value.match(/(\d{17,19})/); 
+                if (roleIdMatch) {
+                    roleId = roleIdMatch[0];
+                } else if (option.value && option.value.length >= 17 && !isNaN(option.value)) {
+                    roleId = option.value;
+                }
 
-            return interaction.editReply({ embeds: [embed] });
+                if (roleId && interaction.guild.roles.cache.has(roleId)) { 
+                    optionsToInsert.push([
+                        messageId, 
+                        option.value, 
+                        roleId, 
+                        option.description || null, 
+                        option.emoji ? option.emoji.name : null
+                    ]);
+                    optionsCount++;
+                }
+            }
+            
+            if (optionsToInsert.length > 0) {
+                const stmt = await sql.prepare("INSERT INTO role_menu_items (message_id, value, role_id, description, emoji) VALUES (?, ?, ?, ?, ?)");
+                const transaction = sql.transaction(() => {
+                    for (const item of optionsToInsert) {
+                        stmt.run(...item);
+                    }
+                });
+                transaction();
+            }
+            
+            if (!selectMenu.customId) {
+                const newMenu = StringSelectMenuBuilder.from(selectMenu).setCustomId(menuCustomId);
+                const newRow = new ActionRowBuilder().addComponents(newMenu);
+                await message.edit({ components: [newRow] });
+            }
 
-        } else if (subcommand === 'رول-الروح') {
-            const role = interaction.options.getRole('آيدي_الرول');
-            setGhostRole(role.id); // (تحديث المتغير العام في الـ Handler)
             return interaction.editReply({ 
-                content: `✅ تم تعيين **رول الروح الهائمة** بنجاح إلى: ${role}`
+                content: `✅ تم تسجيل القائمة بنجاح. يمكنك الآن تعديلها باستخدام الأوامر الأخرى.\n(تم تسجيل ${optionsCount} رول).`
             });
 
-        } else if (subcommand === 'عرض-الاعدادات') {
-            const rows = await sql.prepare("SELECT role_id, anti_roles, is_removable FROM role_settings").all();
+        } else if (subcommand === 'استيراد-اعدادات') {
+            const attachment = interaction.options.getAttachment('ملف_الإعدادات');
 
-            if (rows.length === 0) {
+            if (!attachment.contentType || !attachment.contentType.includes('application/json')) {
+                return interaction.editReply({ content: '❌ يجب أن يكون الملف المرفق من نوع JSON (تأكد من اختيار امتداد .json).' });
+            }
+
+            try {
+                const response = await axios.get(attachment.url);
+                const settingsArray = response.data;
+
+                if (!Array.isArray(settingsArray)) {
+                    return interaction.editReply({ content: '❌ محتوى الملف غير صالح. يجب أن يكون مصفوفة (Array) من الإعدادات.' });
+                }
+
+                const validRoles = [];
+                for (const item of settingsArray) {
+                    if (item.role_id && Array.isArray(item.anti_roles) && typeof item.is_removable === 'boolean') {
+                        if (interaction.guild.roles.cache.has(item.role_id)) {
+                            validRoles.push({
+                                role_id: item.role_id,
+                                anti_roles: item.anti_roles
+                                    .filter(id => interaction.guild.roles.cache.has(id))
+                                    .join(','), 
+                                is_removable: item.is_removable ? 1 : 0
+                            });
+                        }
+                    }
+                }
+                
+                if (validRoles.length === 0) {
+                    return interaction.editReply({ content: '❌ لم يتم العثور على أي إعدادات صالحة أو مطابقة لرولات موجودة في السيرفر داخل الملف.' });
+                }
+
+                await sql.prepare("DELETE FROM role_settings").run();
+                
+                const stmt = await sql.prepare("INSERT INTO role_settings (role_id, anti_roles, is_removable) VALUES (?, ?, ?)");
+                const transaction = sql.transaction(() => {
+                    for (const role of validRoles) {
+                        stmt.run(role.role_id, role.anti_roles, role.is_removable);
+                    }
+                });
+                transaction();
+
+                // ( 🌟 الآن سيعمل هذا السطر بنجاح 🌟 )
+                await loadRoleSettings(sql, client.antiRolesCache);
+
                 return interaction.editReply({ 
-                    content: 'ℹ️ لا توجد إعدادات رولات مضادة أو ثابتة مسجلة حالياً.'
+                    content: `✅ تم استيراد وتحديث **${validRoles.length}** إعداد رول بنجاح.`
+                });
+
+            } catch (error) {
+                console.error('Import settings error:', error);
+                return interaction.editReply({ 
+                    content: `❌ حدث خطأ أثناء قراءة أو معالجة الملف. تأكد من أن الملف بصيغة JSON صحيحة.`
                 });
             }
+        
+        } else if (subcommand === 'نسخ-إيمبد') {
+            const originalMessageId = interaction.options.getString('آيدي_الرسالة_الأصلية');
+            const newChannel = interaction.options.getChannel('القناة_الجديدة');
 
-            const embed = new EmbedBuilder()
-                .setTitle('📜 إعدادات الرولات المضادة والحالة الحالية')
-                .setColor('#FF9900') 
-                .setFooter({ text: `عدد الرولات المسجلة: ${rows.length}` });
-
-            let fields = [];
-
-            for (const row of rows) {
-                const role = interaction.guild.roles.cache.get(row.role_id);
-                if (!role) continue; 
-
-                const antiRolesList = row.anti_roles ? row.anti_roles.split(',').map(id => id.trim()).filter(id => id.length > 0) : [];
-                const isRemovable = row.is_removable === 1 ? '✅ نعم' : '🔒 لا (رول ثابت)';
-
-                const antiRolesDisplay = antiRolesList.length > 0
-                    ? antiRolesList.map(id => `<@&${id}>`).join('\n') 
-                    : 'لا يوجد رولات مضادة.';
-
-                const fieldValue = `**قابل للإزالة:** ${isRemovable}\n**الرتب المضادة:**\n${antiRolesDisplay}`;
-
-                fields.push({
-                    name: `✥ رول: ${role.name}`,
-                    value: fieldValue, 
-                    inline: false
-                });
+            if (newChannel.type !== ChannelType.GuildText) {
+                return interaction.editReply({ content: '❌ يجب أن تكون القناة الجديدة قناة نصية.' });
             }
 
-            const embedLimit = 10; 
-
-            if (fields.length > embedLimit) {
-                let embedsToSend = [];
-                for (let i = 0; i < fields.length; i += embedLimit) {
-                    const currentFields = fields.slice(i, i + embedLimit);
-                    const newEmbed = EmbedBuilder.from(embed)
-                        .setFields(currentFields)
-                        .setFooter({ text: `صفحة ${Math.floor(i / embedLimit) + 1}/${Math.ceil(fields.length / embedLimit)} | إجمالي ${rows.length} رول مسجل` })
-                        .setTitle(i === 0 ? embed.data.title : `${embed.data.title} (تابع)`);
-                    embedsToSend.push(newEmbed);
-                }
-                await interaction.editReply({ embeds: [embedsToSend[0]] });
-                for (let i = 1; i < embedsToSend.length; i++) {
-                    await interaction.followUp({ embeds: [embedsToSend[i]], ephemeral: true });
-                }
-                return;
-            } else {
-                embed.setFields(fields);
-                return interaction.editReply({ embeds: [embed] });
+            const originalMessage = await interaction.channel.messages.fetch(originalMessageId).catch(() => null);
+            if (!originalMessage || originalMessage.embeds.length === 0) {
+                return interaction.editReply({ content: '❌ لم يتم العثور على الرسالة الأصلية أو أنها لا تحتوي على إيمبد.' });
             }
+
+            const masterEntry = await sql.prepare("SELECT custom_id, is_locked FROM role_menus_master WHERE message_id = ?").get(originalMessageId);
+            if (!masterEntry) {
+                return interaction.editReply({ content: '❌ الرسالة الأصلية ليست قائمة أدوار مسجلة.' });
+            }
+
+            const originalMenu = originalMessage.components[0]?.components[0];
+            if (!originalMenu || originalMenu.type !== 3) {
+                return interaction.editReply({ content: '❌ الرسالة الأصلية لا تحتوي على قائمة اختيار.' });
+            }
+
+            const newCustomId = `rr_${Date.now()}_copy`;
+            const newMenu = StringSelectMenuBuilder.from(originalMenu).setCustomId(newCustomId);
+            const newRow = new ActionRowBuilder().addComponents(newMenu);
+
+            const sentMessage = await newChannel.send({ 
+                embeds: originalMessage.embeds, 
+                components: [newRow] 
+            });
+
+            await sql.prepare("INSERT INTO role_menus_master (message_id, custom_id, is_locked) VALUES (?, ?, ?)")
+                .run(sentMessage.id, newCustomId, masterEntry.is_locked);
+
+            const items = await sql.prepare("SELECT value, role_id, description, emoji FROM role_menu_items WHERE message_id = ?").all(originalMessageId);
+            
+            const stmt = await sql.prepare("INSERT INTO role_menu_items (message_id, value, role_id, description, emoji) VALUES (?, ?, ?, ?, ?)");
+            const transaction = sql.transaction(() => {
+                for (const item of items) {
+                    stmt.run(sentMessage.id, item.value, item.role_id, item.description, item.emoji);
+                }
+            });
+            transaction();
+            
+            return interaction.editReply({ content: `✅ تم نسخ الإيمبد بنجاح إلى ${newChannel}. آيدي الرسالة الجديدة: \`${sentMessage.id}\`` });
         }
     }
 };
