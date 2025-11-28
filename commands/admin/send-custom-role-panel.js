@@ -1,53 +1,19 @@
-const { PermissionsBitField, SlashCommandBuilder, EmbedBuilder, Colors } = require("discord.js");
-
-// (دالة للتحقق من أن اللون هو كود هيكس سليم)
-function isValidHexColor(hex) {
-    if (!hex) return false;
-    return /^#[0-9A-F]{6}$/i.test(hex);
-}
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionsBitField, SlashCommandBuilder, Colors } = require("discord.js");
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('اعدادات-لوحة-الرتب')
-        .setDescription('تخصيص محتوى لوحة الرتب المخصصة.')
-        .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
-        .addSubcommand(sub => sub
-            .setName('العنوان')
-            .setDescription('تحديد عنوان اللوحة.')
-            .addStringOption(opt => opt.setName('النص').setDescription('نص العنوان الجديد').setRequired(true))
-        )
-        .addSubcommand(sub => sub
-            .setName('الوصف')
-            .setDescription('تحديد الوصف (المحتوى الرئيسي) للوحة.')
-            .addStringOption(opt => opt.setName('النص').setDescription('اكتب الوصف كاملاً (استخدم \\n لسطر جديد)').setRequired(true))
-        )
-        .addSubcommand(sub => sub
-            .setName('نسخ-الوصف')
-            .setDescription('نسخ محتوى رسالة موجودة واستخدامه كوصف للوحة.')
-            .addStringOption(opt => opt.setName('رابط-الرسالة').setDescription('رابط الرسالة التي تريد نسخ محتواها').setRequired(true))
-        )
-        .addSubcommand(sub => sub
-            .setName('الصورة')
-            .setDescription('تحديد رابط الصورة (البانر) للوحة.')
-            .addStringOption(opt => opt.setName('الرابط').setDescription('رابط الصورة (يجب أن يبدأ بـ https://)').setRequired(true))
-        )
-        .addSubcommand(sub => sub
-            .setName('اللون')
-            .setDescription('تحديد لون الشريط الجانبي للوحة.')
-            .addStringOption(opt => opt.setName('كود-اللون').setDescription('كود اللون (مثل #FF0000)').setRequired(true))
-        )
-        .addSubcommand(sub => sub
-            .setName('عرض-الاعدادات')
-            .setDescription('عرض الإعدادات الحالية للوحة.')
-        ),
+        .setName('نشر-لوحة-الرتب-المخصصة')
+        .setDescription('ينشر لوحة إنشاء الرتب المخصصة بناءً على الإعدادات المحفوظة.')
+        .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator),
 
-    name: 'set-custom-role-panel',
-    aliases: ['scps'],
+    name: 'send-custom-role-panel',
+    aliases: ['scrp', 'sendrolepanel'],
     category: "Admin",
-    description: "تخصيص محتوى لوحة الرتب المخصصة.",
+    description: "ينشر لوحة إنشاء الرتب المخصصة.",
 
     async execute(interactionOrMessage, args) {
-        
+
+        // 1. تحديد نوع التفاعل (سلاش أم بريفكس)
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         let interaction, message, guild, client, member, channel;
 
@@ -73,107 +39,66 @@ module.exports = {
             return message.reply(payload);
         };
         const replyError = async (content) => {
-            if (isSlash) return interaction.editReply({ content, ephemeral: true });
-            return message.reply({ content, ephemeral: true });
+            const payload = { content, ephemeral: true };
+            if (isSlash) return interaction.editReply(payload);
+            return message.reply(payload);
         };
 
+        // 2. التحقق من الصلاحيات
         if (!member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return replyError(`ليس لديك صلاحية الإدارة!`);
         }
+        
+        // 3. جلب الإعدادات من قاعدة البيانات
+        const settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id);
 
-        let subcommand, value;
-
-        // --- ( 🌟 تم الإصلاح هنا: جلب القيم بشكل صريح بدلاً من التخمين 🌟 ) ---
-        if (isSlash) {
-            subcommand = interaction.options.getSubcommand();
+        // إذا لم يتم تحديد عنوان، نستخدم قيماً افتراضية
+        const title = settings?.customRolePanelTitle || '✶ انـشـاء رتـبـة خـاصـة';
+        const description = settings?.customRolePanelDescription || `**✥ هنا يمكنك انشاء رتبتك الخاصة والتعديل عليها**
+- استخدم الأزرار أدناه لإنشاء رتبتك، تغيير اسمها، لونها، أو أيقونتها.
+- يجب أن تمتلك إحدى الرتب المسموحة لاستخدام هذه الميزة.`;
+        
+        // تحويل اللون
+        const color = settings?.customRolePanelColor 
+            ? parseInt(settings.customRolePanelColor.replace('#', ''), 16) 
+            : 0x5d92ff;
             
-            if (subcommand === 'العنوان' || subcommand === 'الوصف') {
-                value = interaction.options.getString('النص');
-            } else if (subcommand === 'نسخ-الوصف') {
-                value = interaction.options.getString('رابط-الرسالة');
-            } else if (subcommand === 'الصورة') {
-                value = interaction.options.getString('الرابط');
-            } else if (subcommand === 'اللون') {
-                value = interaction.options.getString('كود-اللون');
-            } else {
-                value = null; // (مثل عرض-الاعدادات)
-            }
-        } else {
-            subcommand = args[0] ? args[0].toLowerCase() : 'عرض-الاعدادات';
-            value = args.slice(1).join(' ');
-        }
-        // --- ( 🌟 نهاية الإصلاح 🌟 ) ---
-        
-        // (تجهيز جدول settings)
-        sql.prepare("INSERT OR IGNORE INTO settings (guild) VALUES (?)").run(guild.id);
-        
+        const image = settings?.customRolePanelImage || null;
+
+        const embed = new EmbedBuilder()
+            .setTitle(title)
+            .setDescription(description)
+            .setColor(color);
+
+        if (image) embed.setImage(image);
+
+        // 4. إنشاء الأزرار
+        const row1 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('customrole_create').setLabel('انـشـاء رتـبـة').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('customrole_change_name').setLabel('تـغـييـر الاسـم').setStyle(ButtonStyle.Secondary)
+        );
+        const row2 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('customrole_change_color').setLabel('تغـييـر اللـون').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('customrole_change_icon').setLabel('تغييـر الصـورة').setStyle(ButtonStyle.Secondary)
+        );
+        const row3 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('customrole_add_self').setLabel('اضـافــة').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('customrole_remove_self').setLabel('ازالـــة').setStyle(ButtonStyle.Danger)
+        );
+
+        // 5. الإرسال
         try {
-            switch (subcommand) {
-                case 'العنوان':
-                case 'title':
-                    sql.prepare("UPDATE settings SET customRolePanelTitle = ? WHERE guild = ?").run(value, guild.id);
-                    return reply(`✅ تم تحديث **العنوان** بنجاح.`);
-
-                case 'الوصف':
-                case 'desc':
-                    const description = isSlash ? value : value.replace(/\\n/g, '\n');
-                    sql.prepare("UPDATE settings SET customRolePanelDescription = ? WHERE guild = ?").run(description, guild.id);
-                    return reply(`✅ تم تحديث **الوصف** بنجاح.`);
-
-                case 'نسخ-الوصف':
-                case 'msg':
-                    const match = value.match(/discord\.com\/channels\/(\d+)\/(\d+)\/(\d+)/);
-                    if (!match) return replyError("الرابط غير صالح. الرجاء نسخ رابط الرسالة (Message Link).");
-                    
-                    const [, guildId, channelId, messageId] = match;
-                    if (guildId !== guild.id) return replyError("هذه الرسالة من سيرفر آخر.");
-
-                    try {
-                        const fetchedChannel = await client.channels.fetch(channelId);
-                        if (!fetchedChannel || !fetchedChannel.isTextBased()) return replyError("القناة الموجودة في الرابط غير صالح.");
-                        
-                        const fetchedMessage = await fetchedChannel.messages.fetch(messageId);
-                        if (!fetchedMessage || !fetchedMessage.content) return replyError("لم أتمكن من العثور على محتوى في هذه الرسالة.");
-
-                        sql.prepare("UPDATE settings SET customRolePanelDescription = ? WHERE guild = ?").run(fetchedMessage.content, guild.id);
-                        return reply(`✅ تم نسخ الوصف بنجاح من الرسالة.`);
-                    } catch (e) {
-                        console.error(e);
-                        return replyError("فشل في جلب الرسالة. تأكد من أن الرابط صحيح وأن البوت يمتلك صلاحية قراءة القناة.");
-                    }
-
-                case 'الصورة':
-                case 'image':
-                    if (!value.startsWith('https://')) return replyError("الرابط غير صالح، يجب أن يبدأ بـ `https://`.");
-                    sql.prepare("UPDATE settings SET customRolePanelImage = ? WHERE guild = ?").run(value, guild.id);
-                    return reply(`✅ تم تحديث **الصورة** بنجاح.`);
-
-                case 'اللون':
-                case 'color':
-                    if (!isValidHexColor(value)) return replyError("كود اللون غير صالح. يجب أن يكون بصيغة HEX (مثل #FFFFFF).");
-                    sql.prepare("UPDATE settings SET customRolePanelColor = ? WHERE guild = ?").run(value, guild.id);
-                    return reply(`✅ تم تحديث **اللون** بنجاح.`);
-
-                case 'عرض-الاعدادات':
-                case 'view':
-                    const settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(guild.id);
-                    const embed = new EmbedBuilder()
-                        .setTitle("الإعدادات الحالية للوحة الرتب المخصصة")
-                        .setColor(settings.customRolePanelColor ? parseInt(settings.customRolePanelColor.replace('#', ''), 16) : Colors.Blue)
-                        .addFields(
-                            { name: "العنوان", value: settings.customRolePanelTitle || "*(لم يحدد)*" },
-                            { name: "الوصف", value: (settings.customRolePanelDescription || "*(لم يحدد)*").substring(0, 1020) + "..." },
-                            { name: "اللون", value: settings.customRolePanelColor || "*(لم يحدد)*" }
-                        )
-                        .setImage(settings.customRolePanelImage || null);
-                    return reply({ embeds: [embed] });
-
-                default:
-                    return replyError("أمر غير معروف.");
+            await channel.send({ embeds: [embed], components: [row1, row2, row3] });
+            
+            if (isSlash) {
+                await interaction.editReply({ content: '✅ تم نشر اللوحة.', ephemeral: true });
+            } else {
+                // حذف رسالة الأمر إذا كان بريفكس
+                await message.delete().catch(() => {});
             }
-        } catch (err) {
-            console.error(err);
-            return replyError("حدث خطأ في قاعدة البيانات.");
+        } catch (e) {
+            console.error(e);
+            await replyError("فشل نشر اللوحة. تأكد من أن البوت لديه صلاحية `Embed Links` و `Send Messages`.");
         }
     }
 };
