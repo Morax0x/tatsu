@@ -112,7 +112,11 @@ async function updateNickname(member, sql) {
     const settings = sql.prepare("SELECT streakEmoji FROM settings WHERE guild = ?").get(member.guild.id);
     const streakEmoji = settings?.streakEmoji || '🔥';
 
-    const separator = streakData?.separator || '»'; 
+    // --- ( 🌟 التعديل هنا: تحويل القديم | إلى الجديد » تلقائياً ) ---
+    let separator = streakData?.separator || '»'; 
+    if (separator === '|') separator = '»';
+    // -------------------------------------------------------------
+
     const streakCount = streakData?.streakCount || 0;
     const nicknameActive = streakData?.nicknameActive ?? 1;
 
@@ -151,7 +155,6 @@ async function checkDailyStreaks(client, sql) {
     const allStreaks = sql.prepare("SELECT * FROM streaks WHERE streakCount > 0").all();
     const todayKSA = getKSADateString(Date.now());
 
-    // ( 🌟 تم التعديل: إضافة lastMessageTimestamp للتحديث عند استخدام الدرع )
     const updateStreak = sql.prepare("UPDATE streaks SET streakCount = @streakCount, hasGracePeriod = @hasGracePeriod, hasItemShield = @hasItemShield, lastMessageTimestamp = @lastMessageTimestamp WHERE id = @id");
     const settings = sql.prepare("SELECT streakEmoji FROM settings WHERE guild = ?");
 
@@ -181,7 +184,7 @@ async function checkDailyStreaks(client, sql) {
         if (diffDays === 2) {
             if (streakData.hasItemShield === 1) {
                 streakData.hasItemShield = 0;
-                streakData.lastMessageTimestamp = Date.now(); // ( 🌟 إصلاح: تحديث الوقت لمنع الحذف لاحقاً )
+                streakData.lastMessageTimestamp = Date.now(); 
                 updateStreak.run(streakData);
                 if (sendDM) {
                     const embed = new EmbedBuilder().setTitle('✶ اشـعـارات الـستريـك').setColor(Colors.Green)
@@ -191,7 +194,7 @@ async function checkDailyStreaks(client, sql) {
                 }
             } else if (streakData.hasGracePeriod === 1) {
                 streakData.hasGracePeriod = 0;
-                streakData.lastMessageTimestamp = Date.now(); // ( 🌟 إصلاح: تحديث الوقت )
+                streakData.lastMessageTimestamp = Date.now(); 
                 updateStreak.run(streakData);
                 if (sendDM) {
                     const embed = new EmbedBuilder().setTitle('✶ اشـعـارات الـستريـك').setColor(Colors.Green)
@@ -231,7 +234,6 @@ async function checkDailyStreaks(client, sql) {
     console.log(`[Streak] ✅ اكتمل الفحص اليومي للستريك. (تم فحص ${allStreaks.length} عضو)`);
 }
 
-// ... (دالة handleStreakMessage تبقى كما هي مع تعديل الفاصلة الافتراضية التي عدلناها سابقاً) ...
 async function handleStreakMessage(message) {
     const sql = message.client.sql;
 
@@ -260,7 +262,7 @@ async function handleStreakMessage(message) {
             hasItemShield: 0,
             nicknameActive: 1,
             hasReceivedFreeShield: 1,
-            separator: '»', // (الفاصلة الجديدة)
+            separator: '»', 
             dmNotify: 1,
             highestStreak: 1
         };
@@ -269,6 +271,13 @@ async function handleStreakMessage(message) {
         await updateNickname(message.member, sql);
 
     } else {
+        // ( 🌟 هنا: تحديث الفاصلة القديمة تلقائياً عند التحدث 🌟 )
+        if (streakData.separator === '|') {
+            streakData.separator = '»';
+            sql.prepare("UPDATE streaks SET separator = ? WHERE id = ?").run('»', id);
+        }
+        // --------------------------------------------------------
+
         const lastDateKSA = getKSADateString(streakData.lastMessageTimestamp);
         if (todayKSA === lastDateKSA) return;
 
@@ -433,7 +442,6 @@ async function checkDailyMediaStreaks(client, sql) {
     const allStreaks = sql.prepare("SELECT * FROM media_streaks WHERE streakCount > 0").all();
     const todayKSA = getKSADateString(Date.now());
 
-    // ( 🌟 تم التعديل: تحديث lastMediaTimestamp عند استخدام الدرع لمنع الحذف )
     const updateStreak = sql.prepare("UPDATE media_streaks SET streakCount = @streakCount, hasGracePeriod = @hasGracePeriod, hasItemShield = @hasItemShield, lastMediaTimestamp = @lastMediaTimestamp WHERE id = @id");
 
     for (const streakData of allStreaks) {
@@ -480,7 +488,6 @@ async function checkDailyMediaStreaks(client, sql) {
             } else {
                 streakData.streakCount = 0;
                 streakData.hasGracePeriod = 0;
-                // لا نحدث الوقت هنا
                 updateStreak.run(streakData);
                 if(sendDM) {
                      const embed = new EmbedBuilder().setTitle(`✶ اشـعـارات ستريك الميديا ${emoji}`).setColor(Colors.Red)
@@ -545,7 +552,6 @@ async function sendMediaStreakReminders(client, sql) {
                     if (oldMessage) await oldMessage.delete();
                 } catch (e) {}
             }
-            // ------------------------------------
 
             if (usersForThisChannel.length > 0) {
                 const mentions = usersForThisChannel.map(s => `<@${s.userID}>`).join(' ');
@@ -621,7 +627,6 @@ async function sendDailyMediaUpdate(client, sql) {
                 } catch (e) {}
                 sql.prepare("UPDATE media_streak_channels SET lastReminderMessageID = NULL WHERE guildID = ? AND channelID = ?").run(guildID, channelData.channelID);
             }
-            // -----------------------------------------------------------
 
             const sentMsg = await channel.send({ embeds: [guildsStats[guildID]] });
             
@@ -658,9 +663,9 @@ async function sendStreakWarnings(client, sql) {
         // زر الانتقال للسيرفر
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-                .setLabel(`الذهاب إلى: ${guild.name}`)
+                .setLabel(`الذهاب إلى: ${member.guild.name}`)
                 .setStyle(ButtonStyle.Link)
-                .setURL(`https://discord.com/channels/${guild.id}`)
+                .setURL(`https://discord.com/channels/${member.guild.id}`)
         );
 
         const embed = new EmbedBuilder().setTitle('✶ تـحـذيـر الـستريـك').setColor(Colors.Yellow)
