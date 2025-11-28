@@ -18,8 +18,6 @@ module.exports = {
     aliases: ['sqp', 'لوحة-المهام'],
     category: "Admin",
     description: 'إرسال لوحة المهام الدائمة.',
-    usage: '-setup-quest-panel [empire | kingdom]',
-    permissions: ['ManageGuild'],
 
     async execute(interactionOrMessage, args) {
 
@@ -43,14 +41,13 @@ module.exports = {
             channel = message.channel;
             theme = args[0] === 'kingdom' ? 'kingdom' : 'empire';
         }
+        
+        const sql = client.sql;
 
         const replyError = async (content) => {
             const payload = { content, ephemeral: true };
-            if (isSlash) {
-                return interaction.editReply(payload);
-            } else {
-                return message.reply(payload);
-            }
+            if (isSlash) return interaction.editReply(payload);
+            return message.reply(payload);
         };
 
         if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
@@ -62,21 +59,16 @@ module.exports = {
         }
 
         let description;
-
         if (theme === 'kingdom') {
             description = [
-                "- في رحاب المملكة، لا يعلو شأن الفرد إلا بما يقدّمه من جهد ويثبته من أثــر  <a:NekoCool:1435572459276337245>",
-                "",
-                "ومن أجل ذلك أُقيم نظام الإنجازات ليكون سجلًا يُخلّد أعمال الرعايـا ويُظهر مراتبهم بين صفوف الممالك",
-                "",
+                "- في رحاب المملكة، لا يعلو شأن الفرد إلا بما يقدّمه من جهد ويثبته من أثــر  <a:NekoCool:1435572459276337245>", "",
+                "ومن أجل ذلك أُقيم نظام الإنجازات ليكون سجلًا يُخلّد أعمال الرعايـا ويُظهر مراتبهم بين صفوف الممالك", "",
                 "- افتح القـائمـة المنسدلـة لولوج القاعـة"
             ].join('\n');
         } else {
             description = [
-                "- في رحاب الإمبراطورية، لا يعلو شأن الفرد إلا بما يقدّمه من جهد ويثبته من أثــر <a:NekoCool:1435572459276337245>",
-                "",
-                "ومن أجل ذلك أُقيم نظام الإنجازات ليكون سجلًا يُخلّد أعمال الرعايـا ويُظهر مراتبهم بين صفوف الإمبراطورية ",
-                "",
+                "- في رحاب الإمبراطورية، لا يعلو شأن الفرد إلا بما يقدّمه من جهد ويثبته من أثــر <a:NekoCool:1435572459276337245>", "",
+                "ومن أجل ذلك أُقيم نظام الإنجازات ليكون سجلًا يُخلّد أعمال الرعايـا ويُظهر مراتبهم بين صفوف الإمبراطورية ", "",
                 "- افتح القـائمـة المنسدلـة لولوج القاعـة"
             ].join('\n');
         }
@@ -91,47 +83,27 @@ module.exports = {
             .setCustomId(`quest_panel_menu_${theme}`) 
             .setPlaceholder('- قـاعـة الانـجـازات ...')
             .addOptions(
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('الانجـازات')
-                    .setDescription('عرض جميع الإنجازات المتاحة في السيرفر.')
-                    .setValue('panel_achievements')
-                    .setEmoji('1435572459276337245'), 
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('المـهـام اليـوميـة')
-                    .setDescription('عرض المهام اليومية الخاصة بك وتقدمك فيها.')
-                    .setValue('panel_daily_quests')
-                    .setEmoji('1435658634750201876'),
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('المـهـام الاسبوعية')
-                    .setDescription('عرض المهام الأسبوعية الخاصة بك وتقدمك فيها.')
-                    .setValue('panel_weekly_quests')
-                    .setEmoji('1435572430042042409'),
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('لـوحـة الـصدارة')
-                    .setDescription('عرض أعلى الأعضاء في إكمال الإنجازات.')
-                    .setValue('panel_top_achievements')
-                    .setEmoji('1435572391190204447'),
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('انـجـازاتـي')
-                    .setDescription('عرض الإنجازات التي قمت بإكمالها فقط.')
-                    .setValue('panel_my_achievements')
-                    .setEmoji('1437129108806176768'),
-                new StringSelectMenuOptionBuilder()
-                    .setLabel('الاشـعـارات')
-                    .setDescription('التحكم في إشعارات المهام والإنجازات.')
-                    .setValue('panel_notifications')
-                    .setEmoji('🔔')
+                new StringSelectMenuOptionBuilder().setLabel('الانجـازات').setDescription('عرض جميع الإنجازات المتاحة في السيرفر.').setValue('panel_achievements').setEmoji('1435572459276337245'), 
+                new StringSelectMenuOptionBuilder().setLabel('المـهـام اليـوميـة').setDescription('عرض المهام اليومية الخاصة بك وتقدمك فيها.').setValue('panel_daily_quests').setEmoji('1435658634750201876'),
+                new StringSelectMenuOptionBuilder().setLabel('المـهـام الاسبوعية').setDescription('عرض المهام الأسبوعية الخاصة بك وتقدمك فيها.').setValue('panel_weekly_quests').setEmoji('1435572430042042409'),
+                new StringSelectMenuOptionBuilder().setLabel('لـوحـة الـصدارة').setDescription('عرض أعلى الأعضاء في إكمال الإنجازات.').setValue('panel_top_achievements').setEmoji('1435572391190204447'),
+                new StringSelectMenuOptionBuilder().setLabel('انـجـازاتـي').setDescription('عرض الإنجازات التي قمت بإكمالها فقط.').setValue('panel_my_achievements').setEmoji('1437129108806176768'),
+                new StringSelectMenuOptionBuilder().setLabel('الاشـعـارات').setDescription('التحكم في إشعارات المهام والإنجازات.').setValue('panel_notifications').setEmoji('🔔')
             );
 
         const row = new ActionRowBuilder().addComponents(selectMenu);
 
         try {
             await channel.send({ embeds: [embed], components: [row] });
+            
+            // ( 🌟 هذا هو الكود المضاف لحفظ القناة 🌟 )
+            sql.prepare("UPDATE settings SET lastQuestPanelChannelID = ? WHERE guild = ?")
+               .run(channel.id, guild.id);
 
             if (isSlash) {
-                await interaction.editReply({ content: '✅ تم نشر لوحة المهام.', ephemeral: true });
+                await interaction.editReply({ content: '✅ تم نشر لوحة المهام وتم حفظ موقع القناة للإشعارات.', ephemeral: true });
             } else {
-                await message.delete().catch(console.error);
+                await message.delete().catch(() => {});
             }
 
         } catch (err) {
