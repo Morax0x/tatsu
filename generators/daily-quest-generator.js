@@ -25,7 +25,7 @@ try {
 
 // --- ( 2. تعريف الخطوط ) ---
 const FONT_MAIN = '"Font-Arabic-Strict", "NotoEmoji"'; 
-const FONT_EMOJI = '"NotoEmoji"'; // للإيموجي فقط
+const FONT_EMOJI = '"NotoEmoji"'; 
 
 const FONT_PAGE_TITLE = FONT_MAIN;
 const FONT_QUEST_TITLE = FONT_MAIN;
@@ -34,20 +34,8 @@ const FONT_COUNTDOWN = FONT_MAIN;
 const FONT_REWARDS = FONT_MAIN;
 const FONT_PROGRESS_TEXT = FONT_MAIN;
 
-// (قائمة الألوان)
-const RARITY_COLORS = {
-    common: { base: '#1a4b2a', frame: '#2d8649', highlight: '#34eb6e', glow: '#69ff9c' }, 
-    rare: { base: '#1a3e4b', frame: '#2d6a86', highlight: '#349eeb', glow: '#69bfff' }, 
-    epic: { base: '#431a4b', frame: '#7b2d86', highlight: '#b934eb', glow: '#d969ff' }, 
-    legendary: { base: '#4b431a', frame: '#867b2d', highlight: '#ebc934', glow: '#fff369' }, 
-    mythic: { base: '#4b1a1a', frame: '#862d2d', highlight: '#eb3434', glow: '#ff6969' }, 
-};
-
-function getRandomRarityColor() {
-    const keys = Object.keys(RARITY_COLORS);
-    const randomKey = keys[Math.floor(Math.random() * keys.length)];
-    return RARITY_COLORS[randomKey];
-}
+// (اللون الأخضر للمهام اليومية)
+const DAILY_COLOR = { base: '#1a4b2a', frame: '#2d8649', highlight: '#34eb6e', glow: '#69ff9c' };
 
 const COLOR_XP = '#349eeb'; 
 const COLOR_MORA = '#ebc934'; 
@@ -157,11 +145,15 @@ async function drawQuestCard(ctx, x, y, questData) {
     const isDone = progress >= quest.goal;
     const percent = Math.min(1, Math.max(0, progress / quest.goal));
 
-    const rarityColors = getRandomRarityColor(); 
+    // ( 🌟 استخدام اللون الأخضر الثابت للمهام اليومية 🌟 )
+    const rarityColors = DAILY_COLOR; 
 
     ctx.save();
+
+    // 1. الخلفية
     drawWavyBackground(ctx, x, y, CARD_WIDTH, CARD_HEIGHT, BASE_COLORS.background, '#11101a');
 
+    // 2. الإطار
     ctx.strokeStyle = rarityColors.highlight;
     ctx.shadowColor = rarityColors.highlight;
     ctx.shadowBlur = isDone ? 20 : 10;
@@ -178,7 +170,7 @@ async function drawQuestCard(ctx, x, y, questData) {
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
 
-    // الشكل السداسي
+    // 3. الشكل السداسي
     const hexRadius = 55;
     const hexX = x + PADDING + hexRadius;
     const hexY = y + CARD_HEIGHT / 2;
@@ -193,7 +185,7 @@ async function drawQuestCard(ctx, x, y, questData) {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // --- ( 🌟 رسم الإيموجي كصورة أو خط مخصص 🌟 ) ---
+    // 4. رسم الإيموجي
     try {
         const emojiStr = quest.emoji || '🎯'; 
         const emojiUrl = getEmojiUrl(emojiStr);
@@ -202,20 +194,19 @@ async function drawQuestCard(ctx, x, y, questData) {
             const img = await loadImage(emojiUrl);
             ctx.drawImage(img, hexX - 30, hexY - 30, 60, 60);
         } else {
-            ctx.font = `60px ${FONT_EMOJI}`; // استخدام خط الإيموجي هنا فقط
+            ctx.font = `60px ${FONT_EMOJI}`; 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = BASE_COLORS.text;
             ctx.fillText(emojiStr, hexX, hexY);
         }
-    } catch (err) { }
-    // -----------------------------------------------
+    } catch (err) {}
 
     const textX = hexX + hexRadius + PADDING;
     const textRightX = x + CARD_WIDTH - PADDING;
     const barWidth = (x + CARD_WIDTH - PADDING) - textX;
 
-    // النصوص
+    // 5. النصوص
     ctx.fillStyle = isDone ? rarityColors.glow : BASE_COLORS.text;
     ctx.font = `32px ${FONT_QUEST_TITLE}`;
     ctx.textAlign = 'left';
@@ -229,27 +220,31 @@ async function drawQuestCard(ctx, x, y, questData) {
         ctx.fillText(quest.description, textX, y + PADDING + 45); 
     }
 
-    // 6. المكافآت (مرفوعة)
+    // 6. المكافآت
     ctx.textAlign = 'right'; 
-    const rewardY = y + 80; // ( 🌟 تم الرفع 🌟 )
+    // ( 🌟 تم الرفع 🌟 )
+    const rewardY = y + 65; 
     const rewardXStart = textRightX; 
 
     ctx.font = `bold 20px ${FONT_REWARDS}`; 
 
+    // XP
     ctx.fillStyle = COLOR_XP; 
     const xpText = `${quest.reward.xp.toLocaleString()}`;
     const xpTextWidth = ctx.measureText(xpText).width;
     ctx.fillText(xpText, rewardXStart - 25, rewardY); 
     ctx.fillText(EMOJI_STAR, rewardXStart, rewardY); 
 
+    // Mora
     const moraRewardXStart = rewardXStart - 25 - xpTextWidth - 35; 
     ctx.fillStyle = COLOR_MORA; 
     const moraText = `${quest.reward.mora.toLocaleString()}`;
     ctx.fillText(moraText, moraRewardXStart - 25, rewardY); 
     ctx.fillText(EMOJI_MORA, moraRewardXStart, rewardY);
 
-    // 7. التقدم (مرفوع)
-    const barY = y + 110; // ( 🌟 تم الرفع 🌟 )
+    // 7. التقدم
+    // ( 🌟 تم الرفع 🌟 )
+    const barY = y + 103; 
     drawProgressBar(ctx, textX, barY, barWidth, 15, percent, rarityColors.highlight, rarityColors.glow);
 
     ctx.fillStyle = BASE_COLORS.subText;
@@ -281,6 +276,7 @@ async function generateDailyQuestsImage(member, questsData, page = 1) {
     const avatarSize = 60; 
     const avatarY = PAGE_MARGIN;
     
+    // --- ( التنسيق الجديد ) ---
     ctx.fillStyle = BASE_COLORS.text;
     ctx.font = `36px ${FONT_PAGE_TITLE}`; 
     ctx.textAlign = 'left';
@@ -291,10 +287,13 @@ async function generateDailyQuestsImage(member, questsData, page = 1) {
     ctx.font = `24px ${FONT_COUNTDOWN}`; 
     ctx.textAlign = 'right';
     
+    // رقم الصفحة
     ctx.fillText(`صفحة ${page}/${totalPages}`, PAGE_WIDTH - PAGE_MARGIN - PADDING, avatarY + 15);
 
+    // التوقيت
     const countdownText = getDailyResetCountdown();
     ctx.fillText(countdownText, PAGE_WIDTH - PAGE_MARGIN - PADDING, avatarY + 45);
+    // ------------------------
 
     let currentY = PAGE_MARGIN + 80;
     for (const data of questsToShow) { 
