@@ -9,11 +9,15 @@ try {
 
     const mainFontPath = path.join(mainFontsDir, 'bein-ar-normal.ttf');
     if (!fs.existsSync(mainFontPath)) {
-        throw new Error("ملف الخط 'bein-ar-normal.ttf' غير موجود في المجلد 'fonts'.");
+        throw new Error("ملف الخط 'bein-ar-normal.ttf' غير موجود.");
     }
     registerFont(mainFontPath, { family: 'Font-Arabic-Strict' });
 
-    console.log("[Daily-Gen] تم تسجيل الخط العربي (Bein) بنجاح.");
+    // خط الإيموجي
+    const emojiFontPath = path.join(mainFontsDir, 'NotoEmoji.ttf'); 
+    registerFont(emojiFontPath, { family: 'NotoEmoji' }); 
+
+    console.log("[Daily-Gen] تم تسجيل الخطوط بنجاح.");
 
 } catch (err) {
     console.error("!!! خطأ فادح في تسجيل الخطوط:", err.message);
@@ -21,16 +25,16 @@ try {
 
 // --- ( 2. تعريف الخطوط ) ---
 const FONT_MAIN = '"Font-Arabic-Strict", "NotoEmoji"'; 
-const FONT_EMOJI = '"NotoEmoji"'; 
+const FONT_EMOJI = '"NotoEmoji"'; // للإيموجي فقط
 
 const FONT_PAGE_TITLE = FONT_MAIN;
-const FONT_ACH_TITLE = FONT_MAIN;
+const FONT_QUEST_TITLE = FONT_MAIN;
 const FONT_ACH_DESCRIPTION = FONT_MAIN;
 const FONT_COUNTDOWN = FONT_MAIN;
 const FONT_REWARDS = FONT_MAIN;
 const FONT_PROGRESS_TEXT = FONT_MAIN;
 
-// (قائمة الألوان المتاحة للعشوائية)
+// (قائمة الألوان)
 const RARITY_COLORS = {
     common: { base: '#1a4b2a', frame: '#2d8649', highlight: '#34eb6e', glow: '#69ff9c' }, 
     rare: { base: '#1a3e4b', frame: '#2d6a86', highlight: '#349eeb', glow: '#69bfff' }, 
@@ -55,8 +59,8 @@ const BASE_COLORS = {
     hexBg: '#2a273b', 
 };
 
-const EMOJI_MORA_CHAR = 'M';
-const EMOJI_STAR_CHAR = 'XP';
+const EMOJI_MORA = 'M';
+const EMOJI_STAR = 'XP';
 const PADDING = 20;
 const PAGE_MARGIN = 25;
 const CARD_WIDTH = 800;
@@ -71,7 +75,7 @@ function getEmojiUrl(emoji) {
         return `https://cdn.discordapp.com/emojis/${customMatch[3]}.${ext}`;
     }
     try {
-        if (/^[a-zA-Z0-9]+$/.test(emoji)) return null;
+        if (/^[a-zA-Z0-9\s]+$/.test(emoji)) return null;
         const codePoints = [...emoji]
             .map(c => c.codePointAt(0).toString(16))
             .filter(cp => cp !== 'fe0f') 
@@ -156,11 +160,8 @@ async function drawQuestCard(ctx, x, y, questData) {
     const rarityColors = getRandomRarityColor(); 
 
     ctx.save();
-
-    // 1. الخلفية
     drawWavyBackground(ctx, x, y, CARD_WIDTH, CARD_HEIGHT, BASE_COLORS.background, '#11101a');
 
-    // 2. الإطار
     ctx.strokeStyle = rarityColors.highlight;
     ctx.shadowColor = rarityColors.highlight;
     ctx.shadowBlur = isDone ? 20 : 10;
@@ -177,7 +178,7 @@ async function drawQuestCard(ctx, x, y, questData) {
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
 
-    // 3. الشكل السداسي
+    // الشكل السداسي
     const hexRadius = 55;
     const hexX = x + PADDING + hexRadius;
     const hexY = y + CARD_HEIGHT / 2;
@@ -192,7 +193,7 @@ async function drawQuestCard(ctx, x, y, questData) {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // 4. رسم الإيموجي
+    // --- ( 🌟 رسم الإيموجي كصورة أو خط مخصص 🌟 ) ---
     try {
         const emojiStr = quest.emoji || '🎯'; 
         const emojiUrl = getEmojiUrl(emojiStr);
@@ -201,26 +202,26 @@ async function drawQuestCard(ctx, x, y, questData) {
             const img = await loadImage(emojiUrl);
             ctx.drawImage(img, hexX - 30, hexY - 30, 60, 60);
         } else {
-            ctx.font = `60px ${FONT_EMOJI}`; 
+            ctx.font = `60px ${FONT_EMOJI}`; // استخدام خط الإيموجي هنا فقط
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = BASE_COLORS.text;
             ctx.fillText(emojiStr, hexX, hexY);
         }
-    } catch (err) {}
+    } catch (err) { }
+    // -----------------------------------------------
 
     const textX = hexX + hexRadius + PADDING;
     const textRightX = x + CARD_WIDTH - PADDING;
     const barWidth = (x + CARD_WIDTH - PADDING) - textX;
 
-    // 5. النصوص
+    // النصوص
     ctx.fillStyle = isDone ? rarityColors.glow : BASE_COLORS.text;
-    ctx.font = `32px ${FONT_ACH_TITLE}`;
+    ctx.font = `32px ${FONT_QUEST_TITLE}`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillText(quest.name, textX, y + PADDING);
 
-    // الوصف
     if (quest.description) {
         ctx.fillStyle = BASE_COLORS.subText;
         ctx.font = `18px ${FONT_ACH_DESCRIPTION}`;
@@ -228,31 +229,27 @@ async function drawQuestCard(ctx, x, y, questData) {
         ctx.fillText(quest.description, textX, y + PADDING + 45); 
     }
 
-    // 6. المكافآت
+    // 6. المكافآت (مرفوعة)
     ctx.textAlign = 'right'; 
-    // ( 🌟 تم الرفع 🌟 )
-    const rewardY = y + 80; 
+    const rewardY = y + 80; // ( 🌟 تم الرفع 🌟 )
     const rewardXStart = textRightX; 
 
     ctx.font = `bold 20px ${FONT_REWARDS}`; 
 
-    // XP
     ctx.fillStyle = COLOR_XP; 
     const xpText = `${quest.reward.xp.toLocaleString()}`;
     const xpTextWidth = ctx.measureText(xpText).width;
     ctx.fillText(xpText, rewardXStart - 25, rewardY); 
-    ctx.fillText(EMOJI_STAR_CHAR, rewardXStart, rewardY); 
+    ctx.fillText(EMOJI_STAR, rewardXStart, rewardY); 
 
-    // Mora
     const moraRewardXStart = rewardXStart - 25 - xpTextWidth - 35; 
     ctx.fillStyle = COLOR_MORA; 
     const moraText = `${quest.reward.mora.toLocaleString()}`;
     ctx.fillText(moraText, moraRewardXStart - 25, rewardY); 
-    ctx.fillText(EMOJI_MORA_CHAR, moraRewardXStart, rewardY);
+    ctx.fillText(EMOJI_MORA, moraRewardXStart, rewardY);
 
-    // 7. التقدم
-    // ( 🌟 تم الرفع 🌟 )
-    const barY = y + 110; 
+    // 7. التقدم (مرفوع)
+    const barY = y + 110; // ( 🌟 تم الرفع 🌟 )
     drawProgressBar(ctx, textX, barY, barWidth, 15, percent, rarityColors.highlight, rarityColors.glow);
 
     ctx.fillStyle = BASE_COLORS.subText;
@@ -284,7 +281,6 @@ async function generateDailyQuestsImage(member, questsData, page = 1) {
     const avatarSize = 60; 
     const avatarY = PAGE_MARGIN;
     
-    // --- ( التنسيق الجديد ) ---
     ctx.fillStyle = BASE_COLORS.text;
     ctx.font = `36px ${FONT_PAGE_TITLE}`; 
     ctx.textAlign = 'left';
@@ -299,7 +295,6 @@ async function generateDailyQuestsImage(member, questsData, page = 1) {
 
     const countdownText = getDailyResetCountdown();
     ctx.fillText(countdownText, PAGE_WIDTH - PAGE_MARGIN - PADDING, avatarY + 45);
-    // ------------------------
 
     let currentY = PAGE_MARGIN + 80;
     for (const data of questsToShow) { 
