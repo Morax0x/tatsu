@@ -47,7 +47,7 @@ module.exports = {
     description: "تخصيص محتوى لوحة الرتب المخصصة.",
 
     async execute(interactionOrMessage, args) {
-
+        
         const isSlash = !!interactionOrMessage.isChatInputCommand;
         let interaction, message, guild, client, member, channel;
 
@@ -82,17 +82,31 @@ module.exports = {
         }
 
         let subcommand, value;
+
+        // --- ( 🌟 تم الإصلاح هنا: جلب القيم بشكل صريح بدلاً من التخمين 🌟 ) ---
         if (isSlash) {
             subcommand = interaction.options.getSubcommand();
-            value = interaction.options.getString(Object.keys(interaction.options._options)[0]);
+            
+            if (subcommand === 'العنوان' || subcommand === 'الوصف') {
+                value = interaction.options.getString('النص');
+            } else if (subcommand === 'نسخ-الوصف') {
+                value = interaction.options.getString('رابط-الرسالة');
+            } else if (subcommand === 'الصورة') {
+                value = interaction.options.getString('الرابط');
+            } else if (subcommand === 'اللون') {
+                value = interaction.options.getString('كود-اللون');
+            } else {
+                value = null; // (مثل عرض-الاعدادات)
+            }
         } else {
             subcommand = args[0] ? args[0].toLowerCase() : 'عرض-الاعدادات';
             value = args.slice(1).join(' ');
         }
-
+        // --- ( 🌟 نهاية الإصلاح 🌟 ) ---
+        
         // (تجهيز جدول settings)
         sql.prepare("INSERT OR IGNORE INTO settings (guild) VALUES (?)").run(guild.id);
-
+        
         try {
             switch (subcommand) {
                 case 'العنوان':
@@ -102,7 +116,6 @@ module.exports = {
 
                 case 'الوصف':
                 case 'desc':
-                    // (للسماح بـ \n في أوامر البريفكس)
                     const description = isSlash ? value : value.replace(/\\n/g, '\n');
                     sql.prepare("UPDATE settings SET customRolePanelDescription = ? WHERE guild = ?").run(description, guild.id);
                     return reply(`✅ تم تحديث **الوصف** بنجاح.`);
@@ -111,14 +124,14 @@ module.exports = {
                 case 'msg':
                     const match = value.match(/discord\.com\/channels\/(\d+)\/(\d+)\/(\d+)/);
                     if (!match) return replyError("الرابط غير صالح. الرجاء نسخ رابط الرسالة (Message Link).");
-
+                    
                     const [, guildId, channelId, messageId] = match;
                     if (guildId !== guild.id) return replyError("هذه الرسالة من سيرفر آخر.");
 
                     try {
                         const fetchedChannel = await client.channels.fetch(channelId);
-                        if (!fetchedChannel || !fetchedChannel.isTextBased()) return replyError("القناة الموجودة في الرابط غير صالحة.");
-
+                        if (!fetchedChannel || !fetchedChannel.isTextBased()) return replyError("القناة الموجودة في الرابط غير صالح.");
+                        
                         const fetchedMessage = await fetchedChannel.messages.fetch(messageId);
                         if (!fetchedMessage || !fetchedMessage.content) return replyError("لم أتمكن من العثور على محتوى في هذه الرسالة.");
 
