@@ -1,6 +1,5 @@
 const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require("discord.js");
 
-// (هذه قائمة الأسماء الممنوعة من بوتك الثاني)
 const forbiddenNames = [
     'موراكس','morax','ادمن','admin','أدمن','ADM','AdMin','مدير','manager','Manager','MANAGER',
     'مشرف','moderator','Moderator','MOD','Mod','ستاف','staff','Staff','STAFF','اونر','owner',
@@ -12,50 +11,42 @@ const forbiddenNames = [
     'إدارة','اداري','ادارة','أدارة','إداري','Management','Managerial','Adminstration','Administratif'
 ];
 
-// (دالة للتحقق من الصلاحية من قاعدة البيانات)
 function checkPermissions(member, sql) {
     const guildID = member.guild.id;
     const allowedRoles = sql.prepare("SELECT roleID FROM custom_role_permissions WHERE guildID = ?").all(guildID);
-    if (allowedRoles.length === 0) return false; // إذا لم يتم تحديد رتب، لا أحد يستطيع
-
+    if (allowedRoles.length === 0) return false; 
+    
     const allowedRoleIDs = allowedRoles.map(r => r.roleID);
     return member.roles.cache.some(r => allowedRoleIDs.includes(r.id));
 }
 
-// (دالة لجلب الرتبة الثابتة)
 function getAnchorRole(guild, sql) {
     const settings = sql.prepare("SELECT customRoleAnchorID FROM settings WHERE guild = ?").get(guild.id);
     if (!settings || !settings.customRoleAnchorID) return null;
     return guild.roles.cache.get(settings.customRoleAnchorID);
 }
 
-// (دالة لجلب رتبة العضو)
 function getMemberRole(userID, guildID, guild, sql) {
     const data = sql.prepare("SELECT roleID FROM custom_roles WHERE guildID = ? AND userID = ?").get(guildID, userID);
     if (!data) return null;
     return guild.roles.cache.get(data.roleID);
 }
 
-// --- المعالج الرئيسي ---
 async function handleCustomRoleInteraction(i, client, sql) {
     const memberId = i.user.id;
     const guild = i.guild;
 
-    // 1. التحقق من الصلاحية (من قاعدة البيانات)
     if (!checkPermissions(i.member, sql)) {
         return i.reply({ content: 'روح اشتري عضويـة الرتـب يــا فقـير <:2wt:1415691127608180847>', ephemeral: true });
     }
 
-    // 2. جلب الرتبة الثابتة
     const anchorRole = getAnchorRole(guild, sql);
     if (!anchorRole) {
-        return i.reply({ content: "خطأ إداري: لم يتم تحديد 'الرتبة الثابتة' (Anchor Role) لهذا النظام. يرجى إبلاغ الإدارة.", ephemeral: true });
+        return i.reply({ content: "خطأ إداري: لم يتم تحديد 'الرتبة الثابتة' (Anchor Role).", ephemeral: true });
     }
 
-    // 3. جلب رتبة العضو (إن وجدت)
     const role = getMemberRole(memberId, guild.id, guild, sql);
 
-    // --- معالجة الأزرار ---
     if (i.isButton()) {
         const customId = i.customId;
 
@@ -75,7 +66,7 @@ async function handleCustomRoleInteraction(i, client, sql) {
             await i.member.roles.add(role).catch(() => {});
             return i.reply({ content: ` <a:7dan:1394308359024541799> تـــم إضــافـــة الرتــبـــة ${role.name}`, ephemeral: true });
         }
-
+        
         if (customId === 'customrole_remove_self') {
             if (!role) return i.reply({ content: 'أنت لا تملك رتبة مخصصة لإزالتها.', ephemeral: true });
             await i.member.roles.remove(role).catch(() => {});
@@ -106,36 +97,43 @@ async function handleCustomRoleInteraction(i, client, sql) {
         }
     }
 
-    // --- معالجة المودالات ---
     if (i.isModalSubmit()) {
         const customId = i.customId;
 
         if (customId === 'customrole_modal_create') {
             await i.deferReply({ ephemeral: true });
             if (role) return i.editReply({ content: '❖ حـلاوة هي؟ <a:6bonk:1401906810973327430> خـلاص معـاك رتبـة اذا ما ظهـرت اضغـط اضـافـة', ephemeral: true });
-
+            
             const roleName = i.fields.getTextInputValue('roleNameInput');
             if (forbiddenNames.some(name => roleName.toLowerCase().includes(name.toLowerCase()))) {
                 return i.editReply({ content: '❖  لا يشيـخ؟ ممنـوع تحـط رتبـة بهـذا الاسـم <a:8shot:1401840462997749780>', ephemeral: true });
             }
 
             try {
+                // --- ( 🌟 التعديل هنا: إنشاء الرتبة بدون تحديد الموقع أولاً 🌟 ) ---
                 const newRole = await guild.roles.create({
                     name: roleName,
                     color: Math.floor(Math.random() * 16777215),
-                    position: anchorRole.position - 1, // (يضعها تحت الرتبة الثابتة)
                     mentionable: true
                 });
+                
+                // (محاولة وضع الرتبة في المكان الصحيح بعد الإنشاء)
+                try {
+                    await newRole.setPosition(anchorRole.position - 1);
+                } catch (posErr) {
+                    console.warn("فشل تحديد موقع الرتبة المخصصة:", posErr.message);
+                    // (لن نوقف العملية، سيتم إنشاء الرتبة لكن في مكان عشوائي)
+                }
+                // -------------------------------------------------------------
 
-                // (حفظ في قاعدة البيانات)
                 sql.prepare("INSERT INTO custom_roles (id, guildID, userID, roleID) VALUES (?, ?, ?, ?)")
                    .run(`${guild.id}-${memberId}`, guild.id, memberId, newRole.id);
-
+                   
                 await i.member.roles.add(newRole).catch(() => {});
                 return i.editReply({ content: `❖ تـم تـم سويـت رتـبتـك يالامـيـر <:2Piola:1414568762212089917>: ${roleName}`, ephemeral: true });
             } catch (err) {
                 console.error("Failed to create custom role:", err);
-                return i.editReply({ content: 'حدث خطأ أثناء إنشاء الرتبة. تأكد من أن رتبة البوت أعلى من الرتبة الثابتة (Anchor Role).', ephemeral: true });
+                return i.editReply({ content: 'حدث خطأ أثناء إنشاء الرتبة. الرجاء التأكد أن البوت يمتلك صلاحية Manage Roles وأن رتبته هي الأعلى.', ephemeral: true });
             }
         }
 
@@ -149,7 +147,7 @@ async function handleCustomRoleInteraction(i, client, sql) {
             await role.edit({ name: newName }).catch(e => console.error("Role edit name error:", e));
             return i.reply({ content: `❖ <:2BCrikka:1414595716864806962> غـيـرت اسـم رتـبتـك الـى : ${newName}`, ephemeral: true });
         }
-
+        
         if (customId === 'customrole_modal_color') {
             const newColor = i.fields.getTextInputValue('newColor');
             try {
@@ -159,7 +157,7 @@ async function handleCustomRoleInteraction(i, client, sql) {
                 return i.reply({ content: `❖ اللون غير صالح. الرجاء استخدام كود هيكس (مثل #FFFFFF).`, ephemeral: true });
             }
         }
-
+        
         if (customId === 'customrole_modal_icon') {
             let input = i.fields.getTextInputValue('newIcon').trim();
             let iconURL = input;
