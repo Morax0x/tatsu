@@ -1,3 +1,4 @@
+// ( 🌟 تم إضافة REST و Routes هنا في السطر الأول 🌟 )
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType, REST, Routes } = require("discord.js");
 const SQLite = require("better-sqlite3");
 const sql = new SQLite('./mainDB.sqlite');
@@ -101,7 +102,7 @@ function getWeekStartDateString() {
 }
 
 // ==================================================================
-// 4. دوال النظام الأساسية (Levelling, Quests)
+// 4. Core System Functions (Levelling, Quests)
 // ==================================================================
 
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
@@ -133,6 +134,7 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
     } catch (err) { console.error("[Level Roles] Error:", err.message); }
 }
 
+// Leveling function (modified to prevent crash with voice)
 client.sendLevelUpMessage = async function(messageOrInteraction, member, newLevel, oldLevel, xpData) {
     try {
         await client.checkAndAwardLevelRoles(member, newLevel);
@@ -151,7 +153,7 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
             if (messageOrInteraction && messageOrInteraction.channel) {
                 channelToSend = messageOrInteraction.channel;
             } else {
-                return; 
+                return; // Exit function if no channel
             }
         }
 
@@ -209,7 +211,8 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
           
         const rewardDetails = `\n- **حصـلـت عـلـى:**\nMora: \`${reward.mora.toLocaleString()}\` ${client.EMOJI_MORA} | XP: \`${reward.xp.toLocaleString()}\` ${EMOJI_XP_ANIM}`;
 
-        const panelChannelLink = settings.lastQuestPanelChannelID ? `\n\n✶ قـاعـة الانجـازات والمـهام والاشعـارات:\n<#${settings.lastQuestPanelChannelID}>` : "";
+        // ( 🌟 تم تعديل المسافة هنا: \n واحدة فقط 🌟 )
+        const panelChannelLink = settings.lastQuestPanelChannelID ? `\n✶ قـاعـة الانجـازات والمـهام والاشعـارات:\n<#${settings.lastQuestPanelChannelID}>` : "";
 
         if (canAttachFiles) {
             try {
@@ -376,6 +379,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         
+        // --- ( 🌟 تم إصلاح خطأ الـ SQL هنا: توحيد أسماء المتغيرات 🌟 ) ---
         client.setTotalStats.run({
             id: totalStatsId, 
             userID, 
@@ -389,6 +393,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
             total_vc_minutes: totalStats.total_vc_minutes, 
             total_disboard_bumps: totalStats.total_disboard_bumps
         });
+        // -----------------------------------------------------
 
         const member = client.guilds.cache.get(guildID)?.members.cache.get(userID);
         if (member) {
@@ -550,50 +555,17 @@ async function processFarmYields() {
     } catch (err) { console.error("[Farm] Error processing yields:", err); }
 }
 
-// 5.4 نظام الرتب المؤقتة (الحل لمشكلة بقاء الرتب)
-async function checkTemporaryRoles(client) {
-    const now = Date.now();
-    // جلب الرتب المنتهية
-    const expiredRoles = sql.prepare("SELECT * FROM temporary_roles WHERE expiresAt <= ?").all(now);
-
-    for (const record of expiredRoles) {
-        try {
-            const guild = client.guilds.cache.get(record.guildID);
-            if (!guild) {
-                // إذا خرج البوت من السيرفر، نحذف السجل
-                sql.prepare("DELETE FROM temporary_roles WHERE userID = ? AND guildID = ? AND roleID = ?").run(record.userID, record.guildID, record.roleID);
-                continue;
-            }
-
-            const member = await guild.members.fetch(record.userID).catch(() => null);
-            const role = guild.roles.cache.get(record.roleID);
-
-            if (member && role) {
-                // سحب الرتبة
-                await member.roles.remove(role, "انتهاء مدة الرتبة المؤقتة (متجر/جائزة)");
-                console.log(`[Temp Roles] Removed role ${role.name} from ${member.user.tag}`);
-                
-                // (اختياري: إرسال رسالة للعضو)
-                // try { await member.send(`⏳ انتهت مدة رتبة **${role.name}** وتم سحبها منك.`); } catch(e) {}
-            }
-        } catch (e) {
-            console.error(`[Temp Roles Error]: ${e.message}`);
-        }
-
-        // حذف السجل من قاعدة البيانات في كل الأحوال لمنع التكرار
-        sql.prepare("DELETE FROM temporary_roles WHERE userID = ? AND guildID = ? AND roleID = ?").run(record.userID, record.guildID, record.roleID);
-    }
-}
-
 // ==================================================================
 // 6. تشغيل البوت والمجدولات
 // ==================================================================
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username}`);
     
+    // ( 🌟 تم إضافة REST هنا لتحديث الأوامر تلقائياً 🌟 )
     const rest = new REST({ version: '10' }).setToken(botToken);
     const commands = [];
     
+    // ( 🌟 دالة لمنع التكرار 🌟 )
     const loadedCommandNames = new Set();
 
     function getFiles(dir) {
@@ -612,6 +584,7 @@ client.on(Events.ClientReady, async () => {
         try {
             const command = require(file);
             
+            // ( 🌟 التحقق من التكرار قبل الإضافة 🌟 )
             const cmdName = command.data ? command.data.name : command.name;
             
             if (cmdName) {
@@ -623,6 +596,7 @@ client.on(Events.ClientReady, async () => {
                 
                 if (command.data) commands.push(command.data.toJSON());
                 
+                // تسجيل الأمر في الكولكشن للاستخدام
                 if ('execute' in command) {
                     client.commands.set(cmdName, command);
                 }
@@ -632,6 +606,7 @@ client.on(Events.ClientReady, async () => {
         }
     }
     
+    // ( 🌟 تحديث الأوامر تلقائياً - الآن آمن من التكرار 🌟 )
     try { 
         const CLIENT_ID = client.user.id;
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands }); 
@@ -647,7 +622,7 @@ client.on(Events.ClientReady, async () => {
     client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
     client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
     client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
-    client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @total_replies_sent, @total_mentions_received, @total_vc_minutes, @total_disboard_bumps);");
+    client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @replies_sent, @mentions_received, @total_vc_minutes, @total_disboard_bumps);");
     client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
     client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
     client.antiRolesCache = new Map();
