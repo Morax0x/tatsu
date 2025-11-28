@@ -73,7 +73,6 @@ module.exports = {
             subcommand = interaction.options.getSubcommand();
         } else {
             subcommand = args[0] ? args[0].toLowerCase() : 'قائمة';
-            // (دعم بسيط للبريفكس)
             if (subcommand === 'mass' || subcommand === 'جماعي') {
                 subcommand = 'تسجيل-جماعي';
                 targetRole = message.mentions.roles.first();
@@ -85,18 +84,17 @@ module.exports = {
         }
 
         try {
-            // --- 1. تسجيل جماعي (الميزة الجديدة) ---
+            // --- 1. تسجيل جماعي ---
             if (subcommand === 'تسجيل-جماعي') {
                 if (isSlash) targetRole = interaction.options.getRole('الرتبة');
                 if (!targetRole) return reply("❌ يجب تحديد الرتبة.");
 
-                // جلب الأعضاء الذين لديهم الرتبة
-                // (قد نحتاج لعمل fetch للتأكد من تحميل الجميع)
-                await guild.members.fetch(); 
-                const membersWithRole = targetRole.members.filter(m => !m.user.bot); // استبعاد البوتات
+                // ( 🌟 التعديل هنا: إزالة guild.members.fetch() لمنع الـ Rate Limit 🌟 )
+                // نعتمد على الكاش الموجود لأن البوت لديه intent GuildMembers
+                const membersWithRole = targetRole.members.filter(m => !m.user.bot); 
 
                 if (membersWithRole.size === 0) {
-                    return reply(`⚠️ لا يوجد أي أعضاء (بشر) يمتلكون الرتبة ${targetRole} حالياً.`);
+                    return reply(`⚠️ لم أجد أعضاء (بشر) يمتلكون الرتبة ${targetRole} في الذاكرة حالياً.`);
                 }
 
                 let successCount = 0;
@@ -115,7 +113,7 @@ module.exports = {
                     .setTitle("✅ تم التسجيل الجماعي بنجاح")
                     .setDescription(`تم تسجيل الرتبة ${targetRole} لـ **${successCount}** عضو.\nالآن يمكنهم جميعاً التحكم بهذه الرتبة من خلال اللوحة.`)
                     .setColor(Colors.Green)
-                    .setFooter({ text: "ملاحظة: هذا الأمر يقوم بتحديث البيانات فقط، ولا يعطي الرتبة لأحد في ديسكورد." });
+                    .setFooter({ text: "ملاحظة: هذا الأمر يقوم بتحديث البيانات فقط." });
 
                 return reply({ embeds: [embed] });
             }
