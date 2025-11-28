@@ -3,11 +3,10 @@ const path = require('path');
 const { AttachmentBuilder } = require('discord.js');
 const fs = require('fs');
 
-// --- ( 1. تسجيل الخطوط - للعربي فقط ) ---
+// --- ( 1. تسجيل الخطوط ) ---
 try {
     const mainFontsDir = path.join(__dirname, '..', 'fonts');
 
-    // نسجل الخط العربي فقط (Bein) للنصوص
     const mainFontPath = path.join(mainFontsDir, 'bein-ar-normal.ttf');
     if (!fs.existsSync(mainFontPath)) {
         throw new Error("ملف الخط 'bein-ar-normal.ttf' غير موجود في المجلد 'fonts'.");
@@ -23,29 +22,26 @@ try {
 // --- ( 2. تعريف الخطوط ) ---
 const FONT_MAIN = '"Font-Arabic-Strict"'; 
 const FONT_PAGE_TITLE = FONT_MAIN;
-const FONT_ACH_TITLE = FONT_MAIN;
+const FONT_QUEST_TITLE = FONT_MAIN;
 const FONT_ACH_DESCRIPTION = FONT_MAIN;
 const FONT_COUNTDOWN = FONT_MAIN;
 
-// ( قائمة الألوان المتاحة للعشوائية )
 const RARITY_COLORS = {
-    common: { base: '#1a4b2a', frame: '#2d8649', highlight: '#34eb6e', glow: '#69ff9c' }, // أخضر
-    rare: { base: '#1a3e4b', frame: '#2d6a86', highlight: '#349eeb', glow: '#69bfff' }, // أزرق
-    epic: { base: '#431a4b', frame: '#7b2d86', highlight: '#b934eb', glow: '#d969ff' }, // بنفسجي
-    legendary: { base: '#4b431a', frame: '#867b2d', highlight: '#ebc934', glow: '#fff369' }, // ذهبي
-    mythic: { base: '#4b1a1a', frame: '#862d2d', highlight: '#eb3434', glow: '#ff6969' }, // أحمر
+    common: { base: '#1a4b2a', frame: '#2d8649', highlight: '#34eb6e', glow: '#69ff9c' }, 
+    rare: { base: '#1a3e4b', frame: '#2d6a86', highlight: '#349eeb', glow: '#69bfff' }, 
+    epic: { base: '#431a4b', frame: '#7b2d86', highlight: '#b934eb', glow: '#d969ff' }, 
+    legendary: { base: '#4b431a', frame: '#867b2d', highlight: '#ebc934', glow: '#fff369' }, 
+    mythic: { base: '#4b1a1a', frame: '#862d2d', highlight: '#eb3434', glow: '#ff6969' }, 
 };
 
-// ( دالة لاختيار لون عشوائي )
 function getRandomRarityColor() {
     const keys = Object.keys(RARITY_COLORS);
     const randomKey = keys[Math.floor(Math.random() * keys.length)];
     return RARITY_COLORS[randomKey];
 }
 
-// ( الألوان المخصصة للجوائز )
-const COLOR_XP = '#349eeb'; // أزرق
-const COLOR_MORA = '#ebc934'; // أصفر
+const COLOR_XP = '#349eeb'; 
+const COLOR_MORA = '#ebc934'; 
 
 const BASE_COLORS = {
     background: '#1a1827', 
@@ -62,26 +58,19 @@ const CARD_WIDTH = 800;
 const CARD_HEIGHT = 180;
 const PAGE_WIDTH = CARD_WIDTH + (PAGE_MARGIN * 2);
 
-// --- ( 🔙 دالة تحويل الإيموجي - رجعت لنظام Discord Twemoji 🔙 ) ---
 function getEmojiUrl(emoji) {
     if (!emoji) return null;
-
-    // 1. إيموجي ديسكورد الخاص
     const customMatch = emoji.match(/<?(a)?:?(\w{2,32}):(\d{17,19})>?/);
     if (customMatch) {
         const ext = customMatch[1] ? 'gif' : 'png';
         return `https://cdn.discordapp.com/emojis/${customMatch[3]}.${ext}`;
     }
-
-    // 2. إيموجي عادي -> تحويل إلى Twemoji (نفس شكل ديسكورد)
     try {
-        if (/^[a-zA-Z0-9]+$/.test(emoji)) return null; // تجاهل الحروف العادية
+        if (/^[a-zA-Z0-9]+$/.test(emoji)) return null;
         const codePoints = [...emoji]
             .map(c => c.codePointAt(0).toString(16))
-            .filter(cp => cp !== 'fe0f') // إزالة الرموز المخفية
+            .filter(cp => cp !== 'fe0f') 
             .join('-');
-
-        // رابط Twemoji المضمون
         return `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/${codePoints}.png`;
     } catch (e) {
         return null; 
@@ -159,9 +148,7 @@ async function drawQuestCard(ctx, x, y, questData) {
     const isDone = progress >= quest.goal;
     const percent = Math.min(1, Math.max(0, progress / quest.goal));
 
-    // --- ( 🌟 التعديل هنا: اختيار لون عشوائي بدلاً من الثابت 🌟 ) ---
     const rarityColors = getRandomRarityColor(); 
-    // --------------------------------------------------------
 
     ctx.save();
 
@@ -200,7 +187,7 @@ async function drawQuestCard(ctx, x, y, questData) {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // 4. رسم الإيموجي كصورة (Twemoji)
+    // 4. رسم الإيموجي كصورة
     try {
         const emojiStr = quest.emoji || '🎯'; 
         const emojiUrl = getEmojiUrl(emojiStr);
@@ -209,9 +196,7 @@ async function drawQuestCard(ctx, x, y, questData) {
             const img = await loadImage(emojiUrl);
             ctx.drawImage(img, hexX - 30, hexY - 30, 60, 60);
         }
-    } catch (err) {
-        // يترك فارغاً في حال الخطأ
-    }
+    } catch (err) {}
 
     const textX = hexX + hexRadius + PADDING;
     const textRightX = x + CARD_WIDTH - PADDING;
@@ -219,11 +204,12 @@ async function drawQuestCard(ctx, x, y, questData) {
 
     // 5. النصوص
     ctx.fillStyle = isDone ? rarityColors.glow : BASE_COLORS.text;
-    ctx.font = `32px ${FONT_ACH_TITLE}`;
+    ctx.font = `32px ${FONT_QUEST_TITLE}`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillText(quest.name, textX, y + PADDING);
 
+    // الوصف
     if (quest.description) {
         ctx.fillStyle = BASE_COLORS.subText;
         ctx.font = `18px ${FONT_ACH_DESCRIPTION}`;
@@ -233,19 +219,19 @@ async function drawQuestCard(ctx, x, y, questData) {
 
     // 6. المكافآت
     ctx.textAlign = 'right'; 
-    const rewardY = y + 65; // (مرفوع)
+    const rewardY = y + 65; // (مرفوع مثل الأسبوعي)
     const rewardXStart = textRightX; 
 
     ctx.font = `bold 20px ${FONT_ACH_DESCRIPTION}`; 
 
-    // ( XP أزرق )
+    // XP أزرق
     ctx.fillStyle = COLOR_XP; 
     const xpText = `${quest.reward.xp.toLocaleString()}`;
     const xpTextWidth = ctx.measureText(xpText).width;
     ctx.fillText(xpText, rewardXStart - 25, rewardY); 
     ctx.fillText(EMOJI_STAR, rewardXStart, rewardY); 
 
-    // ( Mora أصفر )
+    // Mora أصفر
     const moraRewardXStart = rewardXStart - 25 - xpTextWidth - 35; 
     ctx.fillStyle = COLOR_MORA; 
     const moraText = `${quest.reward.mora.toLocaleString()}`;
@@ -284,18 +270,29 @@ async function generateDailyQuestsImage(member, questsData, page = 1) {
 
     const avatarSize = 60; 
     const avatarY = PAGE_MARGIN;
+    
+    // --- ( تعديل التنسيق: الاسم يسار، الصفحة والتوقيت يمين ومفصولين ) ---
+    
+    // 1. الاسم (يسار)
     ctx.fillStyle = BASE_COLORS.text;
     ctx.font = `36px ${FONT_PAGE_TITLE}`; 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(`المهام اليومية لـ ${member.displayName}`, PAGE_MARGIN + PADDING, avatarY + avatarSize / 2);
 
+    // 2. النصوص اليمنى (مفصولة)
     ctx.fillStyle = BASE_COLORS.subText;
     ctx.font = `24px ${FONT_COUNTDOWN}`; 
     ctx.textAlign = 'right';
+    
+    // رقم الصفحة (فوق)
+    ctx.fillText(`صفحة ${page}/${totalPages}`, PAGE_WIDTH - PAGE_MARGIN - PADDING, avatarY + 15);
+
+    // توقيت التجديد (تحت)
     const countdownText = getDailyResetCountdown();
-    const rightHeaderText = `${countdownText}  |  صفحة ${page}/${totalPages}`;
-    ctx.fillText(rightHeaderText, PAGE_WIDTH - PAGE_MARGIN - PADDING, avatarY + avatarSize / 2);
+    ctx.fillText(countdownText, PAGE_WIDTH - PAGE_MARGIN - PADDING, avatarY + 45);
+    
+    // -----------------------------------------------------------------
 
     let currentY = PAGE_MARGIN + 80;
     for (const data of questsToShow) { 
