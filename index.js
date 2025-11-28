@@ -1,13 +1,12 @@
-// ( 🌟 تم إضافة REST و Routes هنا في السطر الأول 🌟 )
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType, REST, Routes } = require("discord.js");
 const SQLite = require("better-sqlite3");
-const sql = new SQLite('./mainDB.sqlite');
 const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. إعداد قاعدة البيانات
+// 1. إعداد قاعدة البيانات (Database Setup)
 // ==================================================================
+const sql = new SQLite('./mainDB.sqlite');
 sql.pragma('journal_mode = WAL');
 
 try {
@@ -19,7 +18,7 @@ try {
     process.exit(1);
 }
 
-// ضمان وجود الأعمدة الضرورية
+// ضمان وجود الأعمدة الضرورية (Migration)
 try { sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
@@ -28,23 +27,17 @@ try { sql.prepare("ALTER TABLE settings ADD COLUMN countingChannelID TEXT").run(
 try { sql.prepare("ALTER TABLE settings ADD COLUMN questChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE levels ADD COLUMN lastFarmYield INTEGER DEFAULT 0").run(); } catch (e) {} 
 try { sql.prepare("CREATE TABLE IF NOT EXISTS quest_achievement_roles (guildID TEXT, roleID TEXT, achievementID TEXT)").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN shopChannelID TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN bumpChannelID TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN customRoleAnchorID TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelTitle TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelDescription TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelImage TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN customRolePanelColor TEXT").run(); } catch (e) {}
+try { sql.prepare("ALTER TABLE settings ADD COLUMN lastQuestPanelChannelID TEXT").run(); } catch (e) {}
 
 // ==================================================================
-// 2. استيراد المعالجات والملفات
-// ==================================================================
-const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
-const { checkPermissions, checkCooldown } = require("./permission-handler.js");
-
-const questsConfig = require('./json/quests-config.json');
-const farmAnimals = require('./json/farm-animals.json');
-
-const { generateSingleAchievementAlert, generateQuestAlert } = require('./generators/achievement-generator.js'); 
-const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./handlers/giveaway-handler.js');
-const { checkUnjailTask } = require('./handlers/report-handler.js'); 
-const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
-
-// ==================================================================
-// 3. إعداد العميل (Client)
+// 2. إعداد العميل (Client Setup)
 // ==================================================================
 const client = new Client({
     intents: [
@@ -65,6 +58,7 @@ client.recentMessageTimestamps = new Collection();
 const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
 const botToken = process.env.DISCORD_BOT_TOKEN;
 
+// الإيموجيات
 client.EMOJI_MORA = '<:mora:1435647151349698621>';
 client.EMOJI_STAR = '⭐';
 client.EMOJI_WI = '<a:wi:1435572304988868769>';
@@ -74,11 +68,41 @@ client.EMOJI_PRAY = '<:0Pray:1437067281493524502>';
 client.EMOJI_COOL = '<a:NekoCool:1435572459276337245>';
 const EMOJI_XP_ANIM = '<a:levelup:1437805366048985290>';
 
-client.generateSingleAchievementAlert = generateSingleAchievementAlert;
-client.generateQuestAlert = generateQuestAlert;
+// ربط قاعدة البيانات بالعميل
 client.sql = sql;
 
-// (Optional) Backup scheduler
+// ( 🌟 إصلاح هام: تعريف الدوال وقاعدة البيانات قبل التشغيل لتجنب الكراش 🌟 )
+client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
+client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP, lastFarmYield) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP, @lastFarmYield);");
+client.defaultData = { user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0 };
+
+client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
+client.setDailyStats = sql.prepare("INSERT OR REPLACE INTO user_daily_stats (id, userID, guildID, date, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @date, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
+client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
+client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
+client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
+client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @replies_sent, @mentions_received, @total_vc_minutes, @total_disboard_bumps);");
+client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
+client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
+
+// ==================================================================
+// 3. استيراد المعالجات والملفات
+// ==================================================================
+const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
+const { checkPermissions, checkCooldown } = require("./permission-handler.js");
+
+const questsConfig = require('./json/quests-config.json');
+const farmAnimals = require('./json/farm-animals.json');
+
+const { generateSingleAchievementAlert, generateQuestAlert } = require('./generators/achievement-generator.js'); 
+const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./handlers/giveaway-handler.js');
+const { checkUnjailTask } = require('./handlers/report-handler.js'); 
+const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
+
+client.generateSingleAchievementAlert = generateSingleAchievementAlert;
+client.generateQuestAlert = generateQuestAlert;
+
+// (اختياري) جدولة النسخ الاحتياطي
 try { require('./handlers/backup-scheduler.js')(client, sql); } catch(e) {}
 
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
@@ -102,9 +126,10 @@ function getWeekStartDateString() {
 }
 
 // ==================================================================
-// 4. Core System Functions (Levelling, Quests)
+// 4. الدوال المساعدة
 // ==================================================================
 
+// (فحص وإعطاء رتب اللفل)
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
     try {
         const guild = member.guild;
@@ -134,7 +159,7 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
     } catch (err) { console.error("[Level Roles] Error:", err.message); }
 }
 
-// Leveling function (modified to prevent crash with voice)
+// (دالة إرسال رسالة التلفيل)
 client.sendLevelUpMessage = async function(messageOrInteraction, member, newLevel, oldLevel, xpData) {
     try {
         await client.checkAndAwardLevelRoles(member, newLevel);
@@ -153,7 +178,7 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
             if (messageOrInteraction && messageOrInteraction.channel) {
                 channelToSend = messageOrInteraction.channel;
             } else {
-                return; // Exit function if no channel
+                return; 
             }
         }
 
@@ -178,6 +203,7 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
     } catch (err) { console.error(`[LevelUp Error]: ${err.message}`); }
 }
 
+// (دالة إشعار المهام والإنجازات)
 client.sendQuestAnnouncement = async function(guild, member, quest, questType = 'achievement') {
     try {
         const id = `${member.id}-${guild.id}`;
@@ -211,8 +237,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
           
         const rewardDetails = `\n- **حصـلـت عـلـى:**\nMora: \`${reward.mora.toLocaleString()}\` ${client.EMOJI_MORA} | XP: \`${reward.xp.toLocaleString()}\` ${EMOJI_XP_ANIM}`;
 
-        // ( 🌟 تم تعديل المسافة هنا: \n واحدة فقط 🌟 )
-        const panelChannelLink = settings.lastQuestPanelChannelID ? `\n✶ قـاعـة الانجـازات والمـهام والاشعـارات:\n<#${settings.lastQuestPanelChannelID}>` : "";
+        const panelChannelLink = settings.lastQuestPanelChannelID ? `\n\n✶ قـاعـة الانجـازات والمـهام والاشعـارات:\n<#${settings.lastQuestPanelChannelID}>` : "";
 
         if (canAttachFiles) {
             try {
@@ -256,6 +281,7 @@ client.sendQuestAnnouncement = async function(guild, member, quest, questType = 
     } catch (err) { console.error("Error sending quest announcement:", err.message); }
 }
 
+// (فحص المهام)
 client.checkQuests = async function(client, member, stats, questType, dateKey) {
     const questsToCheck = questsConfig[questType] || [];
     for (const quest of questsToCheck) {
@@ -283,6 +309,7 @@ client.checkQuests = async function(client, member, stats, questType, dateKey) {
     }
 }
 
+// (فحص الإنجازات)
 client.checkAchievements = async function(client, member, levelData, totalStatsData) {
     for (const ach of questsConfig.achievements) {
         let currentProgress = 0;
@@ -292,6 +319,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
         if (!totalStatsData) totalStatsData = client.getTotalStats.get(`${member.id}-${member.guild.id}`) || {};
         totalStatsData = client.safeMerge(totalStatsData, defaultTotalStats); 
 
+        // منطق التحقق من الإحصائيات
         if (ach.stat === 'messages') currentProgress = totalStatsData.total_messages || 0;
         else if (ach.stat === 'total_messages') currentProgress = totalStatsData.total_messages || 0; 
         else if (ach.stat === 'images') currentProgress = totalStatsData.total_images || 0;
@@ -341,7 +369,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
-// دالة التتبع الرئيسية
+// (دالة زيادة إحصائيات المهام)
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     if (stat === 'messages') {
         if (!client.recentMessageTimestamps.has(guildID)) client.recentMessageTimestamps.set(guildID, []);
@@ -369,7 +397,6 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (weeklyStats.hasOwnProperty(stat)) weeklyStats[stat] = (weeklyStats[stat] || 0) + amount;
         
         if (stat === 'disboard_bumps') totalStats.total_disboard_bumps = (totalStats.total_disboard_bumps || 0) + amount;
-        // إضافة التتبع الكلي للإحصائيات الجديدة
         if (stat === 'messages') totalStats.total_messages = (totalStats.total_messages || 0) + amount;
         if (stat === 'images') totalStats.total_images = (totalStats.total_images || 0) + amount;
         if (stat === 'replies_sent') totalStats.total_replies_sent = (totalStats.total_replies_sent || 0) + amount;
@@ -379,7 +406,6 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         
-        // --- ( 🌟 تم إصلاح خطأ الـ SQL هنا: توحيد أسماء المتغيرات 🌟 ) ---
         client.setTotalStats.run({
             id: totalStatsId, 
             userID, 
@@ -393,7 +419,6 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
             total_vc_minutes: totalStats.total_vc_minutes, 
             total_disboard_bumps: totalStats.total_disboard_bumps
         });
-        // -----------------------------------------------------
 
         const member = client.guilds.cache.get(guildID)?.members.cache.get(userID);
         if (member) {
@@ -413,6 +438,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     } catch (err) { console.error(`[IncrementQuestStats] Error:`, err.message); }
 }
 
+// (دالة التحقق من الإنجازات المرتبطة بالرتب)
 client.checkRoleAchievement = async function(member, roleId, achievementId) {
     try {
         const guildID = member.guild.id;
@@ -459,7 +485,7 @@ function updateMarketPrices() {
         const transaction = sql.transaction(() => {
             for (const item of allItems) {
                 const oldPrice = item.currentPrice;
-                let changePercent = (Math.random() * 0.30) - 0.15; // -15% to +15%
+                let changePercent = (Math.random() * 0.30) - 0.15; 
 
                 if (oldPrice > 1000) {
                     if (changePercent > 0) {
@@ -498,19 +524,15 @@ const checkLoanPayments = async () => {
             if (!userData) continue;
             const paymentAmount = Math.min(loan.dailyPayment, loan.remainingAmount);
             let remainingToPay = paymentAmount;
-            let logDetails = [];
             
             if (userData.mora > 0) {
                 const takeMora = Math.min(userData.mora, remainingToPay);
                 userData.mora -= takeMora;
                 remainingToPay -= takeMora;
-                logDetails.push(`💰 مورا: ${takeMora.toLocaleString()}`);
             }
-            // ... (منطق السحب الكامل موجود في النسخ السابقة وتم دمجه هنا) ...
             if (remainingToPay > 0) {
                 const xpPenalty = Math.floor(remainingToPay * 2);
                 if (userData.xp >= xpPenalty) userData.xp -= xpPenalty; else { userData.xp = 0; if (userData.level > 1) userData.level -= 1; }
-                logDetails.push(`✨ خبرة (عقوبة): خصم ${xpPenalty} XP`);
                 remainingToPay = 0; 
             }
             client.setLevel.run(userData);
@@ -519,11 +541,9 @@ const checkLoanPayments = async () => {
             if (loan.remainingAmount <= 0) {
                 loan.remainingAmount = 0;
                 sql.prepare("DELETE FROM user_loans WHERE userID = ? AND guildID = ?").run(loan.userID, loan.guildID);
-                logDetails.push("🎉 **تم سداد القرض بالكامل!**");
             } else {
                 sql.prepare("UPDATE user_loans SET remainingAmount = ?, lastPaymentDate = ? WHERE userID = ? AND guildID = ?").run(loan.remainingAmount, now, loan.userID, loan.guildID);
             }
-            // إرسال التقرير...
         } catch (err) { console.error(err); }
     }
 };
@@ -555,17 +575,40 @@ async function processFarmYields() {
     } catch (err) { console.error("[Farm] Error processing yields:", err); }
 }
 
+// --- ( 🌟 دالة فحص الرتب المؤقتة (المضافة) 🌟 ) ---
+async function checkTemporaryRoles(client) {
+    const now = Date.now();
+    const expiredRoles = sql.prepare("SELECT * FROM temporary_roles WHERE expiresAt <= ?").all(now);
+    for (const record of expiredRoles) {
+        try {
+            const guild = client.guilds.cache.get(record.guildID);
+            if (!guild) {
+                sql.prepare("DELETE FROM temporary_roles WHERE userID = ? AND guildID = ? AND roleID = ?").run(record.userID, record.guildID, record.roleID);
+                continue;
+            }
+            const member = await guild.members.fetch(record.userID).catch(() => null);
+            const role = guild.roles.cache.get(record.roleID);
+            if (member && role) {
+                await member.roles.remove(role, "انتهاء مدة الرتبة المؤقتة (متجر/جائزة)");
+                console.log(`[Temp Roles] Removed role ${role.name} from ${member.user.tag}`);
+            }
+        } catch (e) {
+            console.error(`[Temp Roles Error]: ${e.message}`);
+        }
+        sql.prepare("DELETE FROM temporary_roles WHERE userID = ? AND guildID = ? AND roleID = ?").run(record.userID, record.guildID, record.roleID);
+    }
+}
+// --------------------------------------------------
+
 // ==================================================================
 // 6. تشغيل البوت والمجدولات
 // ==================================================================
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username}`);
     
-    // ( 🌟 تم إضافة REST هنا لتحديث الأوامر تلقائياً 🌟 )
     const rest = new REST({ version: '10' }).setToken(botToken);
     const commands = [];
     
-    // ( 🌟 دالة لمنع التكرار 🌟 )
     const loadedCommandNames = new Set();
 
     function getFiles(dir) {
@@ -583,8 +626,6 @@ client.on(Events.ClientReady, async () => {
     for (const file of commandFiles) {
         try {
             const command = require(file);
-            
-            // ( 🌟 التحقق من التكرار قبل الإضافة 🌟 )
             const cmdName = command.data ? command.data.name : command.name;
             
             if (cmdName) {
@@ -593,10 +634,7 @@ client.on(Events.ClientReady, async () => {
                     continue;
                 }
                 loadedCommandNames.add(cmdName);
-                
                 if (command.data) commands.push(command.data.toJSON());
-                
-                // تسجيل الأمر في الكولكشن للاستخدام
                 if ('execute' in command) {
                     client.commands.set(cmdName, command);
                 }
@@ -606,67 +644,23 @@ client.on(Events.ClientReady, async () => {
         }
     }
     
-    // ( 🌟 تحديث الأوامر تلقائياً - الآن آمن من التكرار 🌟 )
     try { 
         const CLIENT_ID = client.user.id;
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands }); 
         console.log(`✅ Successfully reloaded ${commands.length} application (/) commands.`); 
     } catch (error) { console.error("[Deploy Error]", error); }
 
-    // تجهيز Prepared Statements
-    client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
-    client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP, lastFarmYield) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP, @lastFarmYield);");
-    client.defaultData = { user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0 };
-    client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
-    client.setDailyStats = sql.prepare("INSERT OR REPLACE INTO user_daily_stats (id, userID, guildID, date, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @date, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
-    client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
-    client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
-    client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
-    client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @replies_sent, @mentions_received, @total_vc_minutes, @total_disboard_bumps);");
-    client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
-    client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
-    client.antiRolesCache = new Map();
-    await loadRoleSettings(sql, client.antiRolesCache);
-
-    // الفائدة البنكية
-    const calculateInterest = () => {
-        const now = Date.now();
-        const INTEREST_RATE = 0.0005; 
-        const COOLDOWN = 24 * 60 * 60 * 1000; 
-        const INACTIVITY_LIMIT = 7 * 24 * 60 * 60 * 1000; 
-        const allUsers = sql.prepare("SELECT * FROM levels WHERE bank > 0").all();
-        for (const user of allUsers) {
-            if ((now - user.lastInterest) >= COOLDOWN) {
-                const timeSinceDaily = now - (user.lastDaily || 0);
-                const timeSinceWork = now - (user.lastWork || 0);
-                if (timeSinceDaily > INACTIVITY_LIMIT && timeSinceWork > INACTIVITY_LIMIT) {
-                    sql.prepare("UPDATE levels SET lastInterest = ? WHERE user = ? AND guild = ?").run(now, user.user, user.guild);
-                    continue; 
-                }
-                const interestAmount = Math.floor(user.bank * INTEREST_RATE);
-                if (interestAmount > 0) {
-                    sql.prepare("UPDATE levels SET bank = bank + ?, lastInterest = ?, totalInterestEarned = totalInterestEarned + ? WHERE user = ? AND guild = ?").run(interestAmount, now, interestAmount, user.user, user.guild);
-                } else {
-                    sql.prepare("UPDATE levels SET lastInterest = ? WHERE user = ? AND guild = ?").run(now, user.user, user.guild);
-                }
-            }
-        }
-    };
-    setInterval(calculateInterest, 60 * 60 * 1000);
-    calculateInterest();
-    
-    updateMarketPrices(); 
-    setInterval(updateMarketPrices, 60 * 60 * 1000);
+    // (تشغيل المجدولات)
+    setInterval(calculateInterest, 60 * 60 * 1000); calculateInterest();
+    setInterval(updateMarketPrices, 60 * 60 * 1000); updateMarketPrices();
     setInterval(checkLoanPayments, 60 * 60 * 1000);
-    processFarmYields();
-    setInterval(processFarmYields, 60 * 60 * 1000);
-
-    checkDailyStreaks(client, sql); setInterval(() => checkDailyStreaks(client, sql), 3600000); 
-    checkDailyMediaStreaks(client, sql); setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); 
-    checkUnjailTask(client); setInterval(() => checkUnjailTask(client), 5 * 60 * 1000); 
-
+    setInterval(processFarmYields, 60 * 60 * 1000); processFarmYields();
+    setInterval(() => checkDailyStreaks(client, sql), 3600000); checkDailyStreaks(client, sql);
+    setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); checkDailyMediaStreaks(client, sql);
+    setInterval(() => checkUnjailTask(client), 5 * 60 * 1000); checkUnjailTask(client);
+    
     // ( 🌟 تشغيل فاحص الرتب المؤقتة 🌟 )
-    checkTemporaryRoles(client); setInterval(() => checkTemporaryRoles(client), 60000); // كل دقيقة
+    setInterval(() => checkTemporaryRoles(client), 60000); checkTemporaryRoles(client);
     
     let lastReminderSentHour = -1; let lastUpdateSentHour = -1; let lastWarningSentHour = -1; 
     setInterval(() => { 
