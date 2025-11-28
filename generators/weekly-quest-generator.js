@@ -20,7 +20,7 @@ try {
     console.error("!!! خطأ فادح في تسجيل الخطوط:", err.message);
 }
 
-// --- ( 2. تعريف الخطوط ) ---
+// --- ( 2. تع0ريف الخطوط ) ---
 const FONT_MAIN = '"Font-Arabic-Strict"'; 
 const FONT_PAGE_TITLE = FONT_MAIN;
 const FONT_QUEST_TITLE = FONT_MAIN;
