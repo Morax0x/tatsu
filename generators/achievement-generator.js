@@ -5,12 +5,20 @@ const fs = require('fs');
 
 // --- ( 1. تسجيل الخطوط ) ---
 try {
-    const fontsDir = path.join(__dirname, '..', 'fonts');
-    registerFont(path.join(fontsDir, 'bein-ar-normal.ttf'), { family: 'Font-Main' }); 
-    const emojiFontPath = path.join(fontsDir, 'NotoEmoji.ttf'); 
+    const mainFontsDir = path.join(__dirname, '..', 'fonts');
+
+    // ( الخط العربي الموحد )
+    registerFont(path.join(mainFontsDir, 'bein-ar-normal.ttf'), { family: 'Font-Main' }); 
+
+    // ( خط الإيموجي الاحتياطي )
+    const emojiFontPath = path.join(mainFontsDir, 'NotoEmoji.ttf'); 
     registerFont(emojiFontPath, { family: 'NotoEmoji' }); 
-    console.log("[Achievement-Gen] تم تسجيل الخطوط.");
-} catch (err) { console.error(err.message); }
+
+    console.log("[Achievement-Gen] تم تسجيل الخطوط بنجاح.");
+
+} catch (err) {
+    console.error("!!! خطأ فادح في تسجيل الخطوط:", err.message);
+}
 
 // --- ( 2. تعريف الخطوط ) ---
 const FONT_MAIN = '"Font-Main", "NotoEmoji"'; 
@@ -23,7 +31,7 @@ const FONT_PAGE_COUNT = FONT_MAIN;
 const FONT_PROGRESS_TEXT = FONT_MAIN; 
 const FONT_REWARDS = FONT_MAIN; 
 
-// --- ( 🌟 قائمة الألوان الضخمة للإشعارات فقط 🌟 ) ---
+// --- ( قائمة الألوان الضخمة للإشعارات ) ---
 const EXTENDED_COLORS = [
     { base: '#1a4b2a', frame: '#2d8649', highlight: '#34eb6e', glow: '#69ff9c' }, // أخضر
     { base: '#1a3e4b', frame: '#2d6a86', highlight: '#349eeb', glow: '#69bfff' }, // أزرق سماوي
@@ -42,7 +50,6 @@ const EXTENDED_COLORS = [
     { base: '#1a0f2e', frame: '#3d1d66', highlight: '#8a2be2', glow: '#9370db' }  // بنفسجي غامق
 ];
 
-// دالة اختيار لون عشوائي من القائمة الكبيرة
 function getRandomExtColor() {
     return EXTENDED_COLORS[Math.floor(Math.random() * EXTENDED_COLORS.length)];
 }
@@ -77,6 +84,7 @@ function drawRoundedRect(ctx, x, y, width, height, radius) { ctx.beginPath(); ct
 function drawProgressBar(ctx, x, y, width, height, progressPercent, colorStart, colorEnd) { ctx.save(); ctx.fillStyle = '#2c2f33'; drawRoundedRect(ctx, x, y, width, height, height / 2); ctx.fill(); if (progressPercent > 0) { const progressGradient = ctx.createLinearGradient(x, 0, x + width, 0); progressGradient.addColorStop(0, colorStart); progressGradient.addColorStop(1, colorEnd); ctx.fillStyle = progressGradient; drawRoundedRect(ctx, x, y, width * progressPercent, height, height / 2); ctx.fill(); } ctx.restore(); }
 function drawWavyBackground(ctx, x, y, width, height, color1, color2) { ctx.save(); drawRoundedRect(ctx, x, y, width, height, 15); ctx.clip(); const gradient = ctx.createLinearGradient(x, y, x + width, y + height); gradient.addColorStop(0, color1); gradient.addColorStop(1, color2); ctx.fillStyle = gradient; ctx.fillRect(x, y, width, height); ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)'; ctx.lineWidth = 2; for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.moveTo(x, y + (height / 5) * i); for (let j = 0; j <= width; j += 20) { const waveHeight = Math.sin((j / width) * Math.PI * 3 + i) * 10; ctx.lineTo(x + j, y + (height / 5) * i + waveHeight); } ctx.stroke(); } ctx.restore(); }
 
+
 // ===========================================
 // ( 1. دالة الرسم الرئيسية )
 // ===========================================
@@ -84,7 +92,6 @@ async function drawAchievementCard(ctx, x, y, data, forcedColors = null) {
     const { achievement, progress, isDone } = data;
     const percent = Math.min(1, Math.max(0, progress / achievement.goal));
     
-    // ( 🌟 هنا السر: إذا لم نحدد لوناً إجبارياً، اختر لوناً عشوائياً من القائمة الكبيرة 🌟 )
     const rarityColors = forcedColors || getRandomExtColor();
 
     ctx.save();
@@ -148,8 +155,9 @@ async function drawAchievementCard(ctx, x, y, data, forcedColors = null) {
         ctx.fillText(achievement.description, textX, y + PADDING + 45);
     }
 
+    // --- ( 🌟 المكان الجديد للجوائز: y + 65 🌟 ) ---
     ctx.textAlign = 'right'; 
-    const rewardY = y + 80; // (مرفوع)
+    const rewardY = y + 65; 
     const rewardXStart = textRightX; 
 
     ctx.font = `bold 20px ${FONT_REWARDS}`; 
@@ -166,14 +174,15 @@ async function drawAchievementCard(ctx, x, y, data, forcedColors = null) {
     ctx.fillText(moraText, moraRewardXStart - 25, rewardY); 
     ctx.fillText(EMOJI_MORA_CHAR, moraRewardXStart, rewardY);
 
-    const barY = y + 110; // (مرفوع)
+    // --- ( 🌟 المكان الجديد للبار: y + 103 🌟 ) ---
+    const barY = y + 103; 
     drawProgressBar(ctx, textX, barY, barWidth, 15, percent, rarityColors.highlight, rarityColors.glow);
 
     ctx.fillStyle = BASE_COLORS.subText;
     ctx.font = `18px ${FONT_PROGRESS_TEXT}`; 
     ctx.textAlign = 'left';
     const progressText = `التقدم: ${progress.toLocaleString()} / ${achievement.goal.toLocaleString()}`; 
-    ctx.fillText(progressText, textX, barY + 25); // (مرفوع)
+    ctx.fillText(progressText, textX, barY + 25); 
 
     ctx.restore();
 }
@@ -199,9 +208,6 @@ async function generateAchievementPageImage(member, achievementsData, stats) {
 
     let currentY = PAGE_MARGIN + 80;
     for (const data of achievementsData) {
-        // (هنا لا نمرر لوناً، فستأخذ الدالة اللون العشوائي إذا لم تكن في Daily/Weekly)
-        // ولكن بما أن الإنجازات نادرة، يفضل تثبيتها أو جعلها عشوائية أيضاً
-        // سأجعلها عشوائية لتوحيد الشكل
         await drawAchievementCard(ctx, PAGE_MARGIN, currentY, data, null);
         currentY += ACH_CARD_HEIGHT + PADDING;
     }
@@ -209,23 +215,19 @@ async function generateAchievementPageImage(member, achievementsData, stats) {
     return attachment;
 }
 
-// (إشعار الإنجاز الفردي - ألوان عشوائية)
 async function generateSingleAchievementAlert(member, achievement) {
     const canvas = createCanvas(ACH_CARD_WIDTH, ACH_CARD_HEIGHT);
     const ctx = canvas.getContext('2d');
     const data = { achievement: achievement, progress: achievement.goal, isDone: true };
-    // ( 🌟 تمرير null = لون عشوائي 🌟 )
     await drawAchievementCard(ctx, 0, 0, data, null);
     const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: `achievement-unlocked-${member.id}-${achievement.id}.png` });
     return attachment;
 }
 
-// (إشعار المهمة - ألوان عشوائية)
 async function generateQuestAlert(member, quest, questType) {
     const canvas = createCanvas(ACH_CARD_WIDTH, ACH_CARD_HEIGHT); 
     const ctx = canvas.getContext('2d');
     const data = { achievement: quest, progress: quest.goal, isDone: true };
-    // ( 🌟 تمرير null = لون عشوائي 🌟 )
     await drawAchievementCard(ctx, 0, 0, data, null);
     const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: `quest-unlocked-${member.id}-${quest.id}.png` });
     return attachment;
