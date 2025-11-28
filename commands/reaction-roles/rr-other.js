@@ -3,7 +3,7 @@ const axios = require('axios'); // (نحتاجه للاستيراد)
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('ادوات-الرتب')
+        .setName('اداة-الرتب')
         .setDescription('أدوات إضافية لإدارة قوائم الرتب.')
         .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageRoles)
         .addSubcommand(sub => sub
