@@ -1,4 +1,4 @@
-const { PermissionsBitField, EmbedBuilder, Colors } = require("discord.js");
+const { PermissionsBitField, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const KSA_TIMEZONE = 'Asia/Riyadh';
@@ -6,6 +6,7 @@ const KSA_TIMEZONE = 'Asia/Riyadh';
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
 const EMOJI_SHIELD = '<:Shield:1437804676224516146>';
 
+// القائمة المسموحة للفواصل
 const ALLOWED_SEPARATORS_REGEX = ['\\|', '•', '»', '✦', '★', '❖', '✧', '✬', '〢', '┇'];
 
 function getKSADateString(dateObject) {
@@ -111,7 +112,7 @@ async function updateNickname(member, sql) {
     const settings = sql.prepare("SELECT streakEmoji FROM settings WHERE guild = ?").get(member.guild.id);
     const streakEmoji = settings?.streakEmoji || '🔥';
 
-    const separator = streakData?.separator || '|';
+    const separator = streakData?.separator || '»'; 
     const streakCount = streakData?.streakCount || 0;
     const nicknameActive = streakData?.nicknameActive ?? 1;
 
@@ -150,7 +151,8 @@ async function checkDailyStreaks(client, sql) {
     const allStreaks = sql.prepare("SELECT * FROM streaks WHERE streakCount > 0").all();
     const todayKSA = getKSADateString(Date.now());
 
-    const updateStreak = sql.prepare("UPDATE streaks SET streakCount = @streakCount, hasGracePeriod = @hasGracePeriod, hasItemShield = @hasItemShield WHERE id = @id");
+    // ( 🌟 تم التعديل: إضافة lastMessageTimestamp للتحديث عند استخدام الدرع )
+    const updateStreak = sql.prepare("UPDATE streaks SET streakCount = @streakCount, hasGracePeriod = @hasGracePeriod, hasItemShield = @hasItemShield, lastMessageTimestamp = @lastMessageTimestamp WHERE id = @id");
     const settings = sql.prepare("SELECT streakEmoji FROM settings WHERE guild = ?");
 
     for (const streakData of allStreaks) {
@@ -168,35 +170,46 @@ async function checkDailyStreaks(client, sql) {
         const streakEmoji = settings.get(streakData.guildID)?.streakEmoji || '🔥';
         const sendDM = streakData.dmNotify === 1;
 
+        // زر الانتقال للسيرفر
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel(`الذهاب إلى: ${member.guild.name}`)
+                .setStyle(ButtonStyle.Link)
+                .setURL(`https://discord.com/channels/${member.guild.id}`)
+        );
+
         if (diffDays === 2) {
             if (streakData.hasItemShield === 1) {
                 streakData.hasItemShield = 0;
+                streakData.lastMessageTimestamp = Date.now(); // ( 🌟 إصلاح: تحديث الوقت لمنع الحذف لاحقاً )
                 updateStreak.run(streakData);
                 if (sendDM) {
-                    const embed = new EmbedBuilder().setTitle('✶ اشـعـارات الـستريـك').setColor(Colors.Red)
+                    const embed = new EmbedBuilder().setTitle('✶ اشـعـارات الـستريـك').setColor(Colors.Green)
                         .setImage('https://i.postimg.cc/NfLYXwD5/123.jpg')
-                        .setDescription(`- تـم استهـلاك درع الـمتـجر ليحـمي الـستريـك من الـضيـاع 🛡️!\n- سـتريـكك الـحـالي: ${streakData.streakCount} ${streakEmoji}\n- تأكد من إرسال رسالة اليوم لمواصلته <:stop:1436337453098340442>`);
-                    member.send({ embeds: [embed] }).catch(() => {});
+                        .setDescription(`- 🛡️ **تم تفعيل درع المتجر!**\n- تم حماية الستريك الخاص بك (${streakData.streakCount} ${streakEmoji}) من الضياع.\n- لا تنسَ التفاعل اليوم!`);
+                    member.send({ embeds: [embed], components: [row] }).catch(() => {});
                 }
             } else if (streakData.hasGracePeriod === 1) {
                 streakData.hasGracePeriod = 0;
+                streakData.lastMessageTimestamp = Date.now(); // ( 🌟 إصلاح: تحديث الوقت )
                 updateStreak.run(streakData);
                 if (sendDM) {
-                    const embed = new EmbedBuilder().setTitle('✶ اشـعـارات الـستريـك').setColor(Colors.Red)
+                    const embed = new EmbedBuilder().setTitle('✶ اشـعـارات الـستريـك').setColor(Colors.Green)
                         .setImage('https://i.postimg.cc/NfLYXwD5/123.jpg')
-                        .setDescription(`- تـم استهـلاك الدرع المجـاني ليحـمي الـستريـك من الـضيـاع 🛡️!\n- سـتريـكك الـحـالي: ${streakData.streakCount} ${streakEmoji}\n- تأكد من إرسال رسالة اليوم لمواصلته <:stop:1436337453098340442>`);
-                    member.send({ embeds: [embed] }).catch(() => {});
+                        .setDescription(`- 🛡️ **تم تفعيل فترة السماح المجانية!**\n- تم حماية الستريك الخاص بك (${streakData.streakCount} ${streakEmoji}).\n- لا تنسَ التفاعل اليوم!`);
+                    member.send({ embeds: [embed], components: [row] }).catch(() => {});
                 }
             } else {
                 const oldStreak = streakData.streakCount;
                 streakData.streakCount = 0;
                 streakData.hasGracePeriod = 0;
+                // (لا نحدث الوقت عند التصفير)
                 updateStreak.run(streakData);
                 if (sendDM) {
                     const embed = new EmbedBuilder().setTitle('✶ اشـعـارات الـستريـك').setColor(Colors.Red)
                         .setImage('https://i.postimg.cc/NfLYXwD5/123.jpg')
-                        .setDescription(`- يؤسـفنـا ابلاغـك بـ انـك قـد فقدت الـستريـك 💔\n- لم تكن تملك اي درع للحماية وانقطعت عن السيرفر كـان ستريـكك: ${oldStreak}\n- أرسل رسالة جـديـدة لبدء ستريك جديد !`);
-                    member.send({ embeds: [embed] }).catch(() => {});
+                        .setDescription(`- يؤسـفنـا ابلاغـك بـ انـك قـد فقدت الـستريـك 💔\n- لم تكن تملك اي درع للحماية.\n- كـان ستريـكك: ${oldStreak}`);
+                    member.send({ embeds: [embed], components: [row] }).catch(() => {});
                 }
                 if (streakData.nicknameActive === 1) await updateNickname(member, sql);
             }
@@ -209,8 +222,8 @@ async function checkDailyStreaks(client, sql) {
             if (sendDM) {
                 const embed = new EmbedBuilder().setTitle('✶ اشـعـارات الـستريـك').setColor(Colors.Red)
                     .setImage('https://i.postimg.cc/NfLYXwD5/123.jpg')
-                    .setDescription(`- يؤسـفنـا ابلاغـك بـ انـك قـد فقدت الـستريـك 💔\n- لقد انقطعت عن السيرفر مدة طويلة، كـان ستريـكك: ${oldStreak}\n- أرسل رسالة جـديـدة لبدء ستريك جديد !`);
-                member.send({ embeds: [embed] }).catch(() => {});
+                    .setDescription(`- يؤسـفنـا ابلاغـك بـ انـك قـد فقدت الـستريـك 💔\n- لقد انقطعت عن السيرفر مدة طويلة.\n- كـان ستريـكك: ${oldStreak}`);
+                member.send({ embeds: [embed], components: [row] }).catch(() => {});
             }
             if (streakData.nicknameActive === 1) await updateNickname(member, sql);
         }
@@ -218,6 +231,7 @@ async function checkDailyStreaks(client, sql) {
     console.log(`[Streak] ✅ اكتمل الفحص اليومي للستريك. (تم فحص ${allStreaks.length} عضو)`);
 }
 
+// ... (دالة handleStreakMessage تبقى كما هي مع تعديل الفاصلة الافتراضية التي عدلناها سابقاً) ...
 async function handleStreakMessage(message) {
     const sql = message.client.sql;
 
@@ -246,7 +260,7 @@ async function handleStreakMessage(message) {
             hasItemShield: 0,
             nicknameActive: 1,
             hasReceivedFreeShield: 1,
-            separator: '|',
+            separator: '»', // (الفاصلة الجديدة)
             dmNotify: 1,
             highestStreak: 1
         };
@@ -418,7 +432,9 @@ async function checkDailyMediaStreaks(client, sql) {
 
     const allStreaks = sql.prepare("SELECT * FROM media_streaks WHERE streakCount > 0").all();
     const todayKSA = getKSADateString(Date.now());
-    const updateStreak = sql.prepare("UPDATE media_streaks SET streakCount = @streakCount, hasGracePeriod = @hasGracePeriod, hasItemShield = @hasItemShield WHERE id = @id");
+
+    // ( 🌟 تم التعديل: تحديث lastMediaTimestamp عند استخدام الدرع لمنع الحذف )
+    const updateStreak = sql.prepare("UPDATE media_streaks SET streakCount = @streakCount, hasGracePeriod = @hasGracePeriod, hasItemShield = @hasItemShield, lastMediaTimestamp = @lastMediaTimestamp WHERE id = @id");
 
     for (const streakData of allStreaks) {
         const lastDateKSA = getKSADateString(streakData.lastMediaTimestamp);
@@ -434,32 +450,53 @@ async function checkDailyMediaStreaks(client, sql) {
         const sendDM = streakData.dmNotify === 1;
         const emoji = EMOJI_MEDIA_STREAK;
 
+        // زر الانتقال للسيرفر
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel(`الذهاب إلى: ${member.guild.name}`)
+                .setStyle(ButtonStyle.Link)
+                .setURL(`https://discord.com/channels/${member.guild.id}`)
+        );
+
         if (diffDays === 2) {
             if (streakData.hasItemShield === 1) {
                 streakData.hasItemShield = 0;
+                streakData.lastMediaTimestamp = Date.now(); // ( 🌟 إصلاح: تحديث الوقت )
                 updateStreak.run(streakData);
                 if (sendDM) {
-                    const embed = new EmbedBuilder().setTitle(`✶ اشـعـارات ستريك الميديا ${emoji}`).setColor(Colors.Red)
-                        .setDescription(`- تـم استهـلاك درع الـمتـجر ليحـمي ستريك الميديا من الـضيـاع 🛡️!\n- ستريك الميديا الـحـالي: ${streakData.streakCount} ${emoji}\n- تأكد من إرسال صورة/فيديو اليوم لمواصلته <:stop:1436337453098340442>`);
-                    member.send({ embeds: [embed] }).catch(() => {});
+                    const embed = new EmbedBuilder().setTitle(`✶ اشـعـارات ستريك الميديا ${emoji}`).setColor(Colors.Green)
+                        .setDescription(`- 🛡️ **تم تفعيل درع المتجر!**\n- تم حماية ستريك الميديا (${streakData.streakCount} ${emoji}).\n- لا تنسَ الإرسال اليوم!`);
+                    member.send({ embeds: [embed], components: [row] }).catch(() => {});
                 }
             } else if (streakData.hasGracePeriod === 1) {
                 streakData.hasGracePeriod = 0;
+                streakData.lastMediaTimestamp = Date.now(); // ( 🌟 إصلاح: تحديث الوقت )
                 updateStreak.run(streakData);
                 if (sendDM) {
-                     const embed = new EmbedBuilder().setTitle(`✶ اشـعـارات ستريك الميديا ${emoji}`).setColor(Colors.Red)
-                        .setDescription(`- تـم استهـلاك الدرع المجـاني ليحـمي ستريك الميديا من الـضيـاع 🛡️!\n- ستريك الميديا الـحـالي: ${streakData.streakCount} ${emoji}\n- تأكد من إرسال صورة/فيديو اليوم لمواصلته <:stop:1436337453098340442>`);
-                    member.send({ embeds: [embed] }).catch(() => {});
+                     const embed = new EmbedBuilder().setTitle(`✶ اشـعـارات ستريك الميديا ${emoji}`).setColor(Colors.Green)
+                        .setDescription(`- 🛡️ **تم تفعيل فترة السماح!**\n- تم حماية ستريك الميديا (${streakData.streakCount} ${emoji}).\n- لا تنسَ الإرسال اليوم!`);
+                    member.send({ embeds: [embed], components: [row] }).catch(() => {});
                 }
             } else {
                 streakData.streakCount = 0;
                 streakData.hasGracePeriod = 0;
+                // لا نحدث الوقت هنا
                 updateStreak.run(streakData);
+                if(sendDM) {
+                     const embed = new EmbedBuilder().setTitle(`✶ اشـعـارات ستريك الميديا ${emoji}`).setColor(Colors.Red)
+                        .setDescription(`- يؤسـفنـا ابلاغـك بـ انـك قـد فقدت ستريك الميديا 💔\n- لم تكن تملك أي درع.\n- حاول مرة أخرى!`);
+                    member.send({ embeds: [embed], components: [row] }).catch(() => {});
+                }
             }
         } else if (diffDays > 2) {
             streakData.streakCount = 0;
             streakData.hasGracePeriod = 0;
             updateStreak.run(streakData);
+            if(sendDM) {
+                const embed = new EmbedBuilder().setTitle(`✶ اشـعـارات ستريك الميديا ${emoji}`).setColor(Colors.Red)
+                   .setDescription(`- يؤسـفنـا ابلاغـك بـ انـك قـد فقدت ستريك الميديا 💔\n- انقطعت لفترة طويلة.\n- حاول مرة أخرى!`);
+               member.send({ embeds: [embed], components: [row] }).catch(() => {});
+           }
         }
     }
     console.log(`[Media Streak] ✅ اكتمل الفحص اليومي لستريك الميديا.`);
@@ -501,12 +538,14 @@ async function sendMediaStreakReminders(client, sql) {
         try {
             const channel = await client.channels.fetch(channelID);
             
+            // ( 🌟 إضافة: حذف الرسالة القديمة 🌟 )
             if (channelData.lastReminderMessageID) {
                 try {
                     const oldMessage = await channel.messages.fetch(channelData.lastReminderMessageID);
                     if (oldMessage) await oldMessage.delete();
                 } catch (e) {}
             }
+            // ------------------------------------
 
             if (usersForThisChannel.length > 0) {
                 const mentions = usersForThisChannel.map(s => `<@${s.userID}>`).join(' ');
@@ -574,6 +613,16 @@ async function sendDailyMediaUpdate(client, sql) {
                 } catch (e) {}
             }
 
+            // ( 🌟 إضافة: حذف رسالة التذكير أيضاً عند بداية اليوم الجديد 🌟 )
+            if (channelData.lastReminderMessageID) {
+                 try {
+                    const oldRemind = await channel.messages.fetch(channelData.lastReminderMessageID);
+                    if (oldRemind) await oldRemind.delete();
+                } catch (e) {}
+                sql.prepare("UPDATE media_streak_channels SET lastReminderMessageID = NULL WHERE guildID = ? AND channelID = ?").run(guildID, channelData.channelID);
+            }
+            // -----------------------------------------------------------
+
             const sentMsg = await channel.send({ embeds: [guildsStats[guildID]] });
             
             sql.prepare("UPDATE media_streak_channels SET lastDailyMsgID = ? WHERE guildID = ? AND channelID = ?").run(sentMsg.id, guildID, channelData.channelID);
@@ -606,11 +655,19 @@ async function sendStreakWarnings(client, sql) {
         const streakEmoji = settings.get(streakData.guildID)?.streakEmoji || '🔥';
         const timeLeft = (streakData.lastMessageTimestamp + (36 * 60 * 60 * 1000)) - now; 
 
+        // زر الانتقال للسيرفر
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel(`الذهاب إلى: ${guild.name}`)
+                .setStyle(ButtonStyle.Link)
+                .setURL(`https://discord.com/channels/${guild.id}`)
+        );
+
         const embed = new EmbedBuilder().setTitle('✶ تـحـذيـر الـستريـك').setColor(Colors.Yellow)
             .setImage('https://i.postimg.cc/8z0Xw04N/attention.png') 
             .setDescription(`- لـقـد مـضـى أكـثـر مـن 12 سـاعـة عـلـى آخـر رسـالـة لـك\n- سـتريـكك الـحـالي: ${streakData.streakCount} ${streakEmoji}\n- أمـامـك أقـل مـن 12 سـاعـة (تقريباً ${formatTime(timeLeft)}) لإرسـال رسـالـة جـديـدة قـبـل أن يـضـيـع!`);
 
-        await member.send({ embeds: [embed] }).then(() => {
+        await member.send({ embeds: [embed], components: [row] }).then(() => {
             updateWarning.run(streakData.id);
             warnedCount++;
         }).catch(() => {});
