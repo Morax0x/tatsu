@@ -3,11 +3,16 @@ const { PermissionsBitField, SlashCommandBuilder, EmbedBuilder, Colors } = requi
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('تسجيل-رتبة-خاصة')
-        .setDescription('ربط رتبة موجودة بعضو معين ليتمكن من إدارتها عبر اللوحة.')
+        .setDescription('إدارة تسجيل الرتب الخاصة للأعضاء.')
         .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
         .addSubcommand(sub => sub
-            .setName('تسجيل')
-            .setDescription('ربط رتبة بعضو.')
+            .setName('تسجيل-جماعي')
+            .setDescription('يسجل رتبة معينة لجميع الأعضاء الذين يملكونها حالياً.')
+            .addRoleOption(opt => opt.setName('الرتبة').setDescription('الرتبة التي تريد تسجيلها للأعضاء').setRequired(true))
+        )
+        .addSubcommand(sub => sub
+            .setName('تسجيل-فردي')
+            .setDescription('ربط رتبة بعضو محدد (يدوياً).')
             .addUserOption(opt => opt.setName('العضو').setDescription('العضو المالك للرتبة').setRequired(true))
             .addRoleOption(opt => opt.setName('الرتبة').setDescription('الرتبة المراد تسجيلها').setRequired(true))
         )
@@ -20,17 +25,12 @@ module.exports = {
             .setName('قائمة')
             .setDescription('عرض قائمة الرتب الخاصة المسجلة.')
             .addIntegerOption(opt => opt.setName('صفحة').setDescription('رقم الصفحة').setRequired(false))
-        )
-        .addSubcommand(sub => sub
-            .setName('فحص')
-            .setDescription('فحص ما إذا كان العضو يمتلك رتبة مسجلة.')
-            .addUserOption(opt => opt.setName('العضو').setDescription('العضو المراد فحصه').setRequired(true))
         ),
 
     name: 'register-custom-role',
     aliases: ['rcr', 'regrole', 'تسجيل-رتبة'],
     category: "Admin",
-    description: "ربط رتبة موجودة بعضو معين ليتمكن من إدارتها.",
+    description: "إدارة تسجيل الرتب الخاصة.",
 
     async execute(interactionOrMessage, args) {
         
@@ -55,7 +55,7 @@ module.exports = {
         const reply = async (payload) => {
             if (typeof payload === 'string') payload = { content: payload };
             if (isSlash) {
-                payload.ephemeral = true; // (مخفي للإداري)
+                payload.ephemeral = true; 
                 return interaction.editReply(payload);
             }
             return message.reply(payload);
@@ -69,116 +69,108 @@ module.exports = {
         let targetUser, targetRole;
         let page = 1;
 
-        // --- معالجة المدخلات ---
         if (isSlash) {
             subcommand = interaction.options.getSubcommand();
-            targetUser = interaction.options.getUser('العضو');
-            targetRole = interaction.options.getRole('الرتبة');
-            page = interaction.options.getInteger('صفحة') || 1;
         } else {
             subcommand = args[0] ? args[0].toLowerCase() : 'قائمة';
-            
-            // محاولة تخمين المدخلات للبريفكس
-            if (subcommand === 'تسجيل' || subcommand === 'add') {
-                subcommand = 'تسجيل';
+            // (دعم بسيط للبريفكس)
+            if (subcommand === 'mass' || subcommand === 'جماعي') {
+                subcommand = 'تسجيل-جماعي';
+                targetRole = message.mentions.roles.first();
+            } else if (subcommand === 'single' || subcommand === 'فردي') {
+                subcommand = 'تسجيل-فردي';
                 targetUser = message.mentions.users.first();
                 targetRole = message.mentions.roles.first();
-            } else if (subcommand === 'ازالة' || subcommand === 'remove') {
-                subcommand = 'ازالة';
-                targetUser = message.mentions.users.first();
-            } else if (subcommand === 'فحص' || subcommand === 'check') {
-                subcommand = 'فحص';
-                targetUser = message.mentions.users.first();
-            } else if (subcommand === 'قائمة' || subcommand === 'list') {
-                subcommand = 'قائمة';
-                page = parseInt(args[1]) || 1;
             }
         }
 
         try {
-            // --- 1. تسجيل (Add) ---
-            if (subcommand === 'تسجيل') {
-                if (!targetUser || !targetRole) return reply("❌ يجب تحديد العضو والرتبة.");
+            // --- 1. تسجيل جماعي (الميزة الجديدة) ---
+            if (subcommand === 'تسجيل-جماعي') {
+                if (isSlash) targetRole = interaction.options.getRole('الرتبة');
+                if (!targetRole) return reply("❌ يجب تحديد الرتبة.");
+
+                // جلب الأعضاء الذين لديهم الرتبة
+                // (قد نحتاج لعمل fetch للتأكد من تحميل الجميع)
+                await guild.members.fetch(); 
+                const membersWithRole = targetRole.members.filter(m => !m.user.bot); // استبعاد البوتات
+
+                if (membersWithRole.size === 0) {
+                    return reply(`⚠️ لا يوجد أي أعضاء (بشر) يمتلكون الرتبة ${targetRole} حالياً.`);
+                }
+
+                let successCount = 0;
+                const stmt = sql.prepare("INSERT OR REPLACE INTO custom_roles (id, guildID, userID, roleID) VALUES (?, ?, ?, ?)");
+
+                const transaction = sql.transaction(() => {
+                    membersWithRole.forEach(mem => {
+                        stmt.run(`${guild.id}-${mem.id}`, guild.id, mem.id, targetRole.id);
+                        successCount++;
+                    });
+                });
                 
-                // التحقق هل العضو لديه رتبة مسجلة بالفعل
-                const existing = sql.prepare("SELECT roleID FROM custom_roles WHERE guildID = ? AND userID = ?").get(guild.id, targetUser.id);
-                
-                if (existing) {
-                    return reply(`⚠️ هذا العضو لديه رتبة مسجلة بالفعل (<@&${existing.roleID}>). يجب إزالتها أولاً.`);
-                }
-
-                // التحقق هل الرتبة مسجلة لشخص آخر
-                const roleUsed = sql.prepare("SELECT userID FROM custom_roles WHERE guildID = ? AND roleID = ?").get(guild.id, targetRole.id);
-                if (roleUsed) {
-                    return reply(`⚠️ هذه الرتبة مسجلة بالفعل باسم عضو آخر (<@${roleUsed.userID}>).`);
-                }
-
-                // التسجيل
-                sql.prepare("INSERT INTO custom_roles (id, guildID, userID, roleID) VALUES (?, ?, ?, ?)")
-                   .run(`${guild.id}-${targetUser.id}`, guild.id, targetUser.id, targetRole.id);
-
-                // التأكد من أن العضو يملك الرتبة في ديسكورد
-                const guildMember = await guild.members.fetch(targetUser.id).catch(() => null);
-                if (guildMember && !guildMember.roles.cache.has(targetRole.id)) {
-                    await guildMember.roles.add(targetRole).catch(() => console.log("Failed to add role to user in discord"));
-                }
+                transaction();
 
                 const embed = new EmbedBuilder()
-                    .setTitle("✅ تم تسجيل الرتبة الخاصة بنجاح")
-                    .setDescription(`تم ربط الرتبة ${targetRole} بالعضو ${targetUser}.\nالآن يمكن للعضو التحكم بها من خلال لوحة الرتب.`)
-                    .setColor(Colors.Green);
-                
+                    .setTitle("✅ تم التسجيل الجماعي بنجاح")
+                    .setDescription(`تم تسجيل الرتبة ${targetRole} لـ **${successCount}** عضو.\nالآن يمكنهم جميعاً التحكم بهذه الرتبة من خلال اللوحة.`)
+                    .setColor(Colors.Green)
+                    .setFooter({ text: "ملاحظة: هذا الأمر يقوم بتحديث البيانات فقط، ولا يعطي الرتبة لأحد في ديسكورد." });
+
                 return reply({ embeds: [embed] });
             }
 
-            // --- 2. إزالة (Remove) ---
+            // --- 2. تسجيل فردي (Add) ---
+            if (subcommand === 'تسجيل-فردي') {
+                if (isSlash) {
+                    targetUser = interaction.options.getUser('العضو');
+                    targetRole = interaction.options.getRole('الرتبة');
+                }
+                if (!targetUser || !targetRole) return reply("❌ يجب تحديد العضو والرتبة.");
+
+                sql.prepare("INSERT OR REPLACE INTO custom_roles (id, guildID, userID, roleID) VALUES (?, ?, ?, ?)")
+                   .run(`${guild.id}-${targetUser.id}`, guild.id, targetUser.id, targetRole.id);
+
+                // (اختياري) التأكد من أن العضو يملك الرتبة
+                const guildMember = await guild.members.fetch(targetUser.id).catch(() => null);
+                if (guildMember && !guildMember.roles.cache.has(targetRole.id)) {
+                    await guildMember.roles.add(targetRole).catch(() => {});
+                }
+
+                return reply(`✅ تم تسجيل الرتبة ${targetRole} للعضو ${targetUser} بنجاح.`);
+            }
+
+            // --- 3. إزالة (Remove) ---
             if (subcommand === 'ازالة') {
+                if (isSlash) targetUser = interaction.options.getUser('العضو');
                 if (!targetUser) return reply("❌ يجب تحديد العضو.");
 
                 const result = sql.prepare("DELETE FROM custom_roles WHERE guildID = ? AND userID = ?").run(guild.id, targetUser.id);
-
-                if (result.changes > 0) {
-                    return reply(`✅ تم إلغاء ربط الرتبة الخاصة بالعضو ${targetUser}. (لم يتم حذف الرتبة من السيرفر، فقط من قاعدة البيانات).`);
-                } else {
-                    return reply(`❌ هذا العضو ليس لديه رتبة خاصة مسجلة.`);
-                }
-            }
-
-            // --- 3. فحص (Check) ---
-            if (subcommand === 'فحص') {
-                if (!targetUser) return reply("❌ يجب تحديد العضو.");
-
-                const data = sql.prepare("SELECT roleID FROM custom_roles WHERE guildID = ? AND userID = ?").get(guild.id, targetUser.id);
-
-                if (data) {
-                    return reply(`ℹ️ العضو ${targetUser} يمتلك الرتبة الخاصة: <@&${data.roleID}>`);
-                } else {
-                    return reply(`ℹ️ العضو ${targetUser} لا يمتلك أي رتبة خاصة مسجلة.`);
-                }
+                
+                if (result.changes > 0) return reply(`✅ تم إلغاء تسجيل الرتبة الخاصة للعضو ${targetUser}.`);
+                return reply(`❌ هذا العضو ليس لديه رتبة مسجلة.`);
             }
 
             // --- 4. قائمة (List) ---
             if (subcommand === 'قائمة') {
-                const allRoles = sql.prepare("SELECT userID, roleID FROM custom_roles WHERE guildID = ?").all(guild.id);
+                if (isSlash) page = interaction.options.getInteger('صفحة') || 1;
                 
-                if (allRoles.length === 0) {
-                    return reply("📭 لا توجد أي رتب خاصة مسجلة في هذا السيرفر.");
-                }
+                const allRoles = sql.prepare("SELECT userID, roleID FROM custom_roles WHERE guildID = ?").all(guild.id);
+                if (allRoles.length === 0) return reply("📭 لا توجد أي رتب خاصة مسجلة.");
 
                 const itemsPerPage = 10;
                 const totalPages = Math.ceil(allRoles.length / itemsPerPage);
-                if (page > totalPages || page < 1) page = 1;
+                if (page > totalPages) page = 1;
 
                 const startIndex = (page - 1) * itemsPerPage;
-                const endIndex = page * itemsPerPage;
-                const pageItems = allRoles.slice(startIndex, endIndex);
+                const pageItems = allRoles.slice(startIndex, startIndex + itemsPerPage);
 
-                const description = pageItems.map((item, index) => {
-                    return `**${startIndex + index + 1}.** <@${item.userID}> : <@&${item.roleID}>`;
-                }).join('\n');
+                const description = pageItems.map((item, index) => 
+                    `**${startIndex + index + 1}.** <@${item.userID}> : <@&${item.roleID}>`
+                ).join('\n');
 
                 const embed = new EmbedBuilder()
-                    .setTitle(`📜 قائمة الرتب الخاصة المسجلة (${allRoles.length})`)
+                    .setTitle(`📜 الرتب المسجلة (${allRoles.length})`)
                     .setDescription(description)
                     .setFooter({ text: `صفحة ${page} من ${totalPages}` })
                     .setColor(Colors.Blue);
