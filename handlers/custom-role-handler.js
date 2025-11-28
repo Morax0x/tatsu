@@ -110,22 +110,24 @@ async function handleCustomRoleInteraction(i, client, sql) {
             }
 
             try {
-                // --- ( 🌟 إضافة التنظيف قبل الإنشاء 🌟 ) ---
-                // حذف أي سجل قديم لهذا المستخدم في هذا السيرفر
+                // --- ( 🌟 تنظيف البيانات القديمة ) ---
                 sql.prepare("DELETE FROM custom_roles WHERE guildID = ? AND userID = ?").run(guild.id, memberId);
-                // ------------------------------------------
+                // -------------------------------------
 
+                // --- ( 🌟 إنشاء الرتبة أولاً ) ---
                 const newRole = await guild.roles.create({
                     name: roleName,
                     color: Math.floor(Math.random() * 16777215),
                     mentionable: true
                 });
                 
+                // (محاولة النقل بعد الإنشاء)
                 try {
                     await newRole.setPosition(anchorRole.position - 1);
                 } catch (posErr) {
                     console.warn("فشل تحديد موقع الرتبة المخصصة:", posErr.message);
                 }
+                // ---------------------------------
 
                 sql.prepare("INSERT INTO custom_roles (id, guildID, userID, roleID) VALUES (?, ?, ?, ?)")
                    .run(`${guild.id}-${memberId}`, guild.id, memberId, newRole.id);
@@ -194,6 +196,51 @@ async function handleCustomRoleInteraction(i, client, sql) {
     }
 }
 
+// --- ( 🌟 دالة الفحص الدوري للتنظيف 🌟 ) ---
+async function checkDailyCustomRoleExpiration(client, sql) {
+    console.log("[Custom Roles] بدء فحص صلاحيات الرتب الخاصة...");
+    
+    const allCustomRoles = sql.prepare("SELECT * FROM custom_roles").all();
+    if (allCustomRoles.length === 0) return;
+
+    for (const record of allCustomRoles) {
+        try {
+            const guild = client.guilds.cache.get(record.guildID);
+            if (!guild) continue;
+
+            const allowedRolesDB = sql.prepare("SELECT roleID FROM custom_role_permissions WHERE guildID = ?").all(record.guildID);
+            
+            // إذا لم يحدد الإدارة أي رتب مسموحة، فهذا يعني أن الميزة متاحة للجميع
+            if (allowedRolesDB.length === 0) continue;
+
+            const allowedRoleIDs = allowedRolesDB.map(r => r.roleID);
+            const member = await guild.members.fetch(record.userID).catch(() => null);
+            
+            if (!member) {
+                const role = guild.roles.cache.get(record.roleID);
+                if (role) await role.delete("غادر العضو المالك").catch(() => {});
+                sql.prepare("DELETE FROM custom_roles WHERE id = ?").run(record.id);
+                continue;
+            }
+
+            const hasPermission = member.roles.cache.some(r => allowedRoleIDs.includes(r.id));
+
+            if (!hasPermission) {
+                const role = guild.roles.cache.get(record.roleID);
+                if (role) {
+                    await role.delete("فقدان العضو لرتبة الصلاحية (VIP/Booster)").catch(e => console.error(`[Custom Roles] فشل حذف رتبة ${role.id}:`, e.message));
+                }
+                sql.prepare("DELETE FROM custom_roles WHERE id = ?").run(record.id);
+                console.log(`[Custom Roles] تم حذف رتبة العضو ${member.user.tag} لانتهاء الصلاحية.`);
+            }
+        } catch (err) {
+            console.error(`[Custom Roles Error] Record ID ${record.id}:`, err.message);
+        }
+    }
+    console.log("[Custom Roles] انتهى الفحص.");
+}
+
 module.exports = {
-    handleCustomRoleInteraction
+    handleCustomRoleInteraction,
+    checkDailyCustomRoleExpiration // <-- ( 🌟 تأكد من وجود هذا السطر )
 };
