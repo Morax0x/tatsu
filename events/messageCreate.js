@@ -63,16 +63,20 @@ module.exports = {
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         
-        // --- ( 🌟 2. معالج الاختصارات (الأولوية القصوى - المباشر) 🌟 ) ---
+        // --- ( 🌟 2. معالج الاختصارات الذكي (Global Search) 🌟 ) ---
         try {
-            // تقسيم الرسالة
             const argsRaw = message.content.trim().split(/ +/);
-            // أخذ الكلمة الأولى وتحويلها لأحرف صغيرة (للغة الانجليزية)
             const shortcutWord = argsRaw[0].toLowerCase(); 
 
-            // البحث المباشر في قاعدة البيانات
-            // (بدون Normalization معقدة لضمان التطابق الحرفي)
-            const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
+            // أ) البحث في القناة الحالية (الأولوية)
+            let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
+                .get(message.guild.id, message.channel.id, shortcutWord);
+
+            // ب) إذا لم نجد، ابحث في السيرفر بالكامل (Fallback)
+            if (!shortcut) {
+                shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
+                    .get(message.guild.id, shortcutWord);
+            }
             
             if (shortcut) {
                 const cmd = client.commands.get(shortcut.commandName);
@@ -84,17 +88,16 @@ module.exports = {
                              return;
                         }
                         try {
-                            // تنفيذ الأمر وتمرير باقي الكلام كـ args
                             await cmd.execute(message, argsRaw.slice(1)); 
                         } catch (e) { console.error(e); }
                     }
-                    return; // ( 🛑 توقف هنا - لا تكمل لباقي الكود )
+                    return; 
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
-        // -------------------------------------------------------------------
+        // ------------------------------------------------------------
 
-        // 3. معالج البريفكس العادي
+        // 3. معالج البريفكس
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
