@@ -63,23 +63,26 @@ module.exports = {
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         
-        // --- ( 🌟 2. معالج الاختصارات الذكي (Global Search) 🌟 ) ---
+        // --- ( 🌟 2. معالج الاختصارات الذكي (بحث شامل) 🌟 ) ---
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase(); 
 
-            // أ) البحث في القناة الحالية (الأولوية)
+            // البحث في الداتابيس
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            // ب) إذا لم نجد، ابحث في السيرفر بالكامل (Fallback)
             if (!shortcut) {
                 shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
                     .get(message.guild.id, shortcutWord);
             }
             
             if (shortcut) {
-                const cmd = client.commands.get(shortcut.commandName);
+                // ( 🌟 التعديل الجوهري هنا 🌟 )
+                // البحث عن الأمر بالاسم الأصلي OR البحث عنه في قائمة Aliases
+                const cmd = client.commands.get(shortcut.commandName) || 
+                            client.commands.find(c => c.aliases && c.aliases.includes(shortcut.commandName));
+
                 if (cmd) {
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
@@ -91,7 +94,7 @@ module.exports = {
                             await cmd.execute(message, argsRaw.slice(1)); 
                         } catch (e) { console.error(e); }
                     }
-                    return; 
+                    return; // توقف هنا، تم تنفيذ الاختصار
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
