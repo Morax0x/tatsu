@@ -11,7 +11,7 @@ function setupDatabase(sql) {
     // 1. جميع الجداول في مصفوفة واحدة (بدلاً من كتابة الأمر 43 مرة)
     const tables = [
         "CREATE TABLE IF NOT EXISTS levels (user TEXT NOT NULL, guild TEXT NOT NULL, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1, totalXP INTEGER DEFAULT 0, mora INTEGER DEFAULT 0, lastWork INTEGER DEFAULT 0, lastDaily INTEGER DEFAULT 0, dailyStreak INTEGER DEFAULT 0, bank INTEGER DEFAULT 0, lastInterest INTEGER DEFAULT 0, totalInterestEarned INTEGER DEFAULT 0, hasGuard INTEGER DEFAULT 0, guardExpires INTEGER DEFAULT 0, totalVCTime INTEGER DEFAULT 0, lastCollected INTEGER DEFAULT 0, lastRob INTEGER DEFAULT 0, lastGuess INTEGER DEFAULT 0, lastRPS INTEGER DEFAULT 0, lastRoulette INTEGER DEFAULT 0, lastTransfer INTEGER DEFAULT 0, lastDeposit INTEGER DEFAULT 0, shop_purchases INTEGER DEFAULT 0, total_meow_count INTEGER DEFAULT 0, boost_count INTEGER DEFAULT 0, lastPVP INTEGER DEFAULT 0, lastFarmYield INTEGER DEFAULT 0, PRIMARY KEY (user, guild))",
-        "CREATE TABLE IF NOT EXISTS settings (guild TEXT PRIMARY KEY, voiceXP INTEGER DEFAULT 0, voiceCooldown INTEGER DEFAULT 60000, customXP INTEGER DEFAULT 25, customCooldown INTEGER DEFAULT 60000, levelUpMessage TEXT, lvlUpTitle TEXT, lvlUpDesc TEXT, lvlUpImage TEXT, lvlUpColor TEXT, lvlUpMention INTEGER DEFAULT 1, streakEmoji TEXT DEFAULT '🔥', questChannelID TEXT, treeBotID TEXT, treeChannelID TEXT, treeMessageID TEXT, countingChannelID TEXT, vipRoleID TEXT, casinoChannelID TEXT, dropGiveawayChannelID TEXT, dropTitle TEXT, dropDescription TEXT, dropColor TEXT, dropFooter TEXT, dropButtonLabel TEXT, dropButtonEmoji TEXT, dropMessageContent TEXT, lastMediaUpdateSent TEXT, lastMediaUpdateMessageID TEXT, lastMediaUpdateChannelID TEXT, shopChannelID TEXT, bumpChannelID TEXT, customRoleAnchorID TEXT, customRolePanelTitle TEXT, customRolePanelDescription TEXT, customRolePanelImage TEXT, customRolePanelColor TEXT, lastQuestPanelChannelID TEXT)",
+        "CREATE TABLE IF NOT EXISTS settings (guild TEXT PRIMARY KEY, voiceXP INTEGER DEFAULT 0, voiceCooldown INTEGER DEFAULT 60000, customXP INTEGER DEFAULT 25, customCooldown INTEGER DEFAULT 60000, levelUpMessage TEXT, lvlUpTitle TEXT, lvlUpDesc TEXT, lvlUpImage TEXT, lvlUpColor TEXT, lvlUpMention INTEGER DEFAULT 1, streakEmoji TEXT DEFAULT '🔥', questChannelID TEXT, treeBotID TEXT, treeChannelID TEXT, treeMessageID TEXT, countingChannelID TEXT, vipRoleID TEXT, casinoChannelID TEXT, dropGiveawayChannelID TEXT, dropTitle TEXT, dropDescription TEXT, dropColor TEXT, dropFooter TEXT, dropButtonLabel TEXT, dropButtonEmoji TEXT, dropMessageContent TEXT, lastMediaUpdateSent TEXT, lastMediaUpdateMessageID TEXT, lastMediaUpdateChannelID TEXT, shopChannelID TEXT, bumpChannelID TEXT, customRoleAnchorID TEXT, customRolePanelTitle TEXT, customRolePanelDescription TEXT, customRolePanelImage TEXT, customRolePanelColor TEXT, lastQuestPanelChannelID TEXT, streakTimerChannelID TEXT, dailyTimerChannelID TEXT, weeklyTimerChannelID TEXT)",
         "CREATE TABLE IF NOT EXISTS report_settings (guildID TEXT PRIMARY KEY, logChannelID TEXT, reportChannelID TEXT, jailRoleID TEXT, arenaRoleID TEXT, unlimitedRoleID TEXT, testRoleID TEXT)",
         "CREATE TABLE IF NOT EXISTS report_permissions (guildID TEXT NOT NULL, roleID TEXT NOT NULL, PRIMARY KEY (guildID, roleID))",
         "CREATE TABLE IF NOT EXISTS active_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT NOT NULL, targetID TEXT NOT NULL, reporterID TEXT NOT NULL, timestamp INTEGER NOT NULL, UNIQUE(guildID, targetID, reporterID))",
@@ -63,7 +63,6 @@ function setupDatabase(sql) {
     sql.prepare("DROP TABLE IF EXISTS command_channels").run();
 
     // 2. نظام التحديث الذكي (Migration System)
-    // هذا الفنكشن الصغير يغنيك عن كتابة 200 سطر من الـ if statements
     function ensureColumn(table, column, typeDef) {
         try {
             const cols = sql.prepare(`PRAGMA table_info(${table})`).all();
@@ -74,7 +73,6 @@ function setupDatabase(sql) {
         } catch (e) { /* Table might not exist yet, which is fine */ }
     }
 
-    // هنا نقوم بنفس الفحوصات التي كانت في كودك القديم، ولكن بشكل مختصر
     // Levels Table
     ['mora', 'lastWork', 'lastDaily', 'dailyStreak', 'bank', 'lastInterest', 'totalInterestEarned', 'hasGuard', 'guardExpires', 'lastCollected', 'totalVCTime', 'lastRob', 'lastGuess', 'lastRPS', 'lastRoulette', 'lastTransfer', 'lastDeposit', 'shop_purchases', 'total_meow_count', 'boost_count', 'lastPVP', 'lastFarmYield'].forEach(col => ensureColumn('levels', col, 'INTEGER DEFAULT 0'));
 
@@ -95,8 +93,15 @@ function setupDatabase(sql) {
     ensureColumn('streaks', 'highestStreak', 'INTEGER DEFAULT 0');
     ensureColumn('streaks', 'has12hWarning', 'INTEGER DEFAULT 0');
     
-    // Settings & Others
-    const settingsCols = ["questChannelID", "treeBotID", "treeChannelID", "treeMessageID", "countingChannelID", "vipRoleID", "casinoChannelID", "dropGiveawayChannelID", "dropTitle", "dropDescription", "dropColor", "dropFooter", "dropButtonLabel", "dropButtonEmoji", "dropMessageContent", "lastMediaUpdateSent", "lastMediaUpdateMessageID", "lastMediaUpdateChannelID", "shopChannelID", "bumpChannelID", "customRoleAnchorID", "customRolePanelTitle", "customRolePanelDescription", "customRolePanelImage", "customRolePanelColor", "lastQuestPanelChannelID"];
+    // Settings & Others (شاملة قنوات التوقيت الجديدة)
+    const settingsCols = [
+        "questChannelID", "treeBotID", "treeChannelID", "treeMessageID", "countingChannelID", "vipRoleID",
+        "casinoChannelID", "dropGiveawayChannelID", "dropTitle", "dropDescription", "dropColor", "dropFooter",
+        "dropButtonLabel", "dropButtonEmoji", "dropMessageContent", "lastMediaUpdateSent", "lastMediaUpdateMessageID",
+        "lastMediaUpdateChannelID", "shopChannelID", "bumpChannelID", "customRoleAnchorID", "customRolePanelTitle",
+        "customRolePanelDescription", "customRolePanelImage", "customRolePanelColor", "lastQuestPanelChannelID",
+        "streakTimerChannelID", "dailyTimerChannelID", "weeklyTimerChannelID" // (الأعمدة الجديدة)
+    ];
     settingsCols.forEach(col => ensureColumn('settings', col, 'TEXT'));
     
     ensureColumn('quest_notifications', 'levelNotif', 'INTEGER DEFAULT 1');
@@ -108,9 +113,9 @@ function setupDatabase(sql) {
     // 3. التحقق من عناصر الماركت
     const itemsCount = sql.prepare("SELECT count(*) as count FROM market_items").get();
     if (itemsCount.count === 0) {
-        console.log("[Market] Installing default items...");
+        console.log("[Market] Market is empty. Populating default items...");
         const insertItem = sql.prepare("INSERT INTO market_items (id, name, description, currentPrice) VALUES (@id, @name, @description, @price)");
-        sql.transaction((items) => items.forEach((item) => insertItem.run(item)))(defaultMarketItems);
+        sql.transaction(() => { defaultMarketItems.forEach((item) => insertItem.run(item)); })();
     }
 
     console.log("[Database] ✅ All tables checked, updated, and ready.");
