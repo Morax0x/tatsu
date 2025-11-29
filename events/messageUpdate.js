@@ -1,12 +1,12 @@
 const { Events } = require("discord.js");
 
-// تتبع التكرار (Anti-Spam) - يمنع نفس الشخص من أخذ نقاط مرتين في الدقيقة
+// Spam prevention: prevents the same user from getting points twice in a minute
 const treeCooldowns = new Set();
 
 module.exports = {
     name: Events.MessageUpdate,
     async execute(oldMessage, newMessage) {
-        // 1. التأكد من تحميل الرسالة كاملة (إذا كانت قديمة)
+        // 1. Ensure full message is loaded (if partial)
         if (newMessage.partial) {
             try {
                 await newMessage.fetch();
@@ -16,27 +16,29 @@ module.exports = {
         }
         if (!newMessage.guild) return;
 
-        // 2. جلب الاتصال بقاعدة البيانات
+        // 2. Get Database Connection
         const client = newMessage.client;
         const sql = client.sql;
-        if (!sql) return; // أمان
+        
+        // Safety Check: Ensure DB is open
+        if (!sql || !sql.open) return; 
 
         try {
-            // 3. جلب إعدادات السيرفر
-            const settings = sql.prepare("SELECT treeChannelID, treeBotID FROM settings WHERE guild = ?").get(newMessage.guild.id);
+            // 3. Get Server Settings
+            const settings = sql.prepare("SELECT treeChannelID, treeBotID, treeMessageID FROM settings WHERE guild = ?").get(newMessage.guild.id);
             
-            // إذا لم يتم تفعيل النظام (لم يحدد قناة)، نخرج
+            // If system not enabled (no channel set), exit
             if (!settings || !settings.treeChannelID) return;
 
-            // 4. التحقق من القناة والبوت
+            // 4. Validate Channel and Bot Author
             if (newMessage.channel.id !== settings.treeChannelID) return;
-            if (!newMessage.author.bot) return; // لازم الرسالة تكون من بوت
+            if (!newMessage.author.bot) return; // Must be a bot message
 
-            // (اختياري: إذا حددنا بوت معين، نتأكد منه)
+            // Optional: Check specific bot ID if set
             if (settings.treeBotID && newMessage.author.id !== settings.treeBotID) return;
 
 
-            // 5. تجميع المحتوى (الوصف + العنوان + المحتوى + الحقول) لضمان كشف المنشن
+            // 5. Aggregate Content (Description + Title + Content + Fields) to find mentions
             let fullContent = (newMessage.content || "") + " ";
             
             if (newMessage.embeds.length > 0) {
@@ -44,7 +46,7 @@ module.exports = {
                 fullContent += (embed.description || "") + " ";
                 fullContent += (embed.title || "") + " ";
                 
-                // أحياناً المنشن يكون داخل الحقول (Fields)
+                // Check fields as mentions are sometimes there
                 if (embed.fields && embed.fields.length > 0) {
                     embed.fields.forEach(field => {
                         fullContent += (field.value || "") + " ";
@@ -52,14 +54,14 @@ module.exports = {
                 }
             }
 
-            // 6. كلمات مفتاحية (تأكد أن بوت الشجرة يكتب إحداها)
+            // 6. Keywords to identify tree messages
             const validPhrases = [
                 "watered the tree", 
                 "سقى الشجرة", 
                 "Watered",
                 "your tree",
                 "قام بسقاية",
-                "level up", // أحياناً التلفيل في الشجرة يعتبر سقاية
+                "level up", // Sometimes leveling up the tree counts as watering
                 "tree grew",
                 "has watered"
             ];
@@ -67,17 +69,17 @@ module.exports = {
             const isTreeMessage = validPhrases.some(phrase => fullContent.toLowerCase().includes(phrase.toLowerCase()));
 
             if (isTreeMessage) {
-                // 7. البحث عن أول منشن لعضو (User ID)
-                // الترتيب: <@!123> أو <@123>
+                // 7. Find first user mention (User ID)
+                // Matches <@!123> or <@123>
                 const match = fullContent.match(/<@!?(\d+)>/);
                 
                 if (match && match[1]) {
                     const userID = match[1];
                     
-                    // تجاهل إذا كان المنشن للبوت نفسه
+                    // Ignore if mention is the bot itself or the message author
                     if (userID === client.user.id || userID === newMessage.author.id) return;
 
-                    // 🛑 كول داون (دقيقة واحدة لكل شخص)
+                    // 🛑 Cooldown (1 minute per person)
                     if (treeCooldowns.has(userID)) return;
                     
                     treeCooldowns.add(userID);
@@ -85,19 +87,22 @@ module.exports = {
 
                     const guildID = newMessage.guild.id;
 
-                    console.log(`[TREE TRACKER] ✅ تم رصد سقاية للعضو: ${userID}`);
+                    console.log(`[TREE TRACKER] ✅ Water detected for user: ${userID}`);
 
-                    // 8. الحساب باستخدام الدالة المركزية (الأضمن)
+                    // 8. Calculate Stats using central function
                     if (client.incrementQuestStats) {
-                        // الرقم 1 يعني سقاية واحدة
+                        // 1 means one watering action
                         await client.incrementQuestStats(userID, guildID, 'water_tree', 1);
                     } else {
-                        console.error("[TREE ERROR] دالة incrementQuestStats غير موجودة في client!");
+                        console.error("[TREE ERROR] incrementQuestStats function missing in client!");
                     }
                 }
             }
         } catch (err) {
-            console.error("[Tree Update Error]", err);
+            // Silently ignore DB connection errors during restarts
+            if (!err.message.includes('database connection is not open')) {
+                console.error("[Tree Update Error]", err);
+            }
         }
     },
 };
