@@ -5,7 +5,7 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// كولداون الردود التلقائية (ذاكرة مؤقتة)
+// كولداون الردود التلقائية
 const autoResponderCooldowns = new Collection();
 // كولداون سقاية الشجرة
 const treeCooldowns = new Set();
@@ -45,7 +45,7 @@ module.exports = {
 
         if (!message.guild) return;
 
-        // 1. كشف البومب (Disboard) - الأولوية القصوى
+        // 1. كشف البومب (Disboard)
         if (message.author.id === DISBOARD_BOT_ID) {
             let bumperID = null;
             if (message.interaction && message.interaction.commandName === 'bump') {
@@ -64,18 +64,16 @@ module.exports = {
             return; 
         }
 
-        // تحميل الإعدادات العامة
+        // إعدادات
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
 
-        // 2. تتبع سقاية الشجرة (يجب أن يكون قبل تجاهل البوتات)
+        // 2. تتبع سقاية الشجرة (قبل تجاهل البوتات)
         if (settings && settings.treeChannelID && message.channel.id === settings.treeChannelID) {
-            // نتأكد أن الرسالة من بوت
             if (message.author.bot) {
                 const fullContent = (message.content || "") + " " + (message.embeds[0]?.description || "") + " " + (message.embeds[0]?.title || "");
                 const lowerContent = fullContent.toLowerCase();
-                
-                // كلمات السقاية
                 const validPhrases = ["watered the tree", "سقى الشجرة", "has watered", "قام بسقاية"];
+                
                 if (validPhrases.some(p => lowerContent.includes(p))) {
                     const match = fullContent.match(/<@!?(\d+)>/);
                     if (match && match[1]) {
@@ -83,11 +81,9 @@ module.exports = {
                         if (userID !== client.user.id && !treeCooldowns.has(userID)) {
                             treeCooldowns.add(userID);
                             setTimeout(() => treeCooldowns.delete(userID), 60000);
-
                             if (client.incrementQuestStats) {
                                 await client.incrementQuestStats(userID, message.guild.id, 'water_tree', 1);
                                 message.react('💧').catch(() => {});
-                                // console.log(`[Tree] Water detected for ${userID}`);
                             }
                         }
                     }
@@ -95,30 +91,34 @@ module.exports = {
             }
         }
 
-        // ⛔ تجاهل البوتات لباقي الأنظمة
         if (message.author.bot) return;
 
-        // 3. معالج الاختصارات (Shortcuts) - الأولوية قبل البريفكس
+        // ============================================================
+        // 🌟 3. معالج الاختصارات (البحث الشامل بدون قاموس) 🌟
+        // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // أ) البحث في القناة الحالية
+            // أ) البحث في قاعدة البيانات عن الاختصار
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            // ب) البحث العام (Fallback)
+            // ب) Fallback (بحث عام)
             if (!shortcut) {
                 shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
                     .get(message.guild.id, shortcutWord);
             }
             
             if (shortcut) {
-                const targetName = shortcut.commandName.toLowerCase();
-                
-                // البحث الذكي عن الأمر (الاسم أو الـ Alias)
-                const cmd = client.commands.get(targetName) || 
-                            client.commands.find(c => c.aliases && c.aliases.includes(targetName));
+                const targetName = shortcut.commandName.toLowerCase(); // مثلاً: "رصيد"
+
+                // ج) البحث الشامل في الأوامر (الاسم أو الـ Aliases)
+                // هذا الكود يبحث في كل أمر: هل اسمك يطابق targetName؟ أو هل لديك alias يطابق targetName؟
+                const cmd = client.commands.find(c => 
+                    c.name === targetName || 
+                    (c.aliases && c.aliases.includes(targetName))
+                );
 
                 if (cmd) {
                     if (checkPermissions(message, cmd)) {
@@ -131,12 +131,16 @@ module.exports = {
                             await cmd.execute(message, argsRaw.slice(1)); 
                         } catch (e) { console.error(e); }
                     }
-                    return; // تم التنفيذ، نتوقف هنا
+                    return; // تم التنفيذ
+                } else {
+                    // إذا وصلنا هنا، يعني الاختصار مسجل في الداتابيس لكن لا يوجد أمر يطابقه
+                    // console.log(`[Shortcut Debug] Command '${targetName}' not found in loaded commands.`);
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
+        // ============================================================
 
-        // 4. معالج البريفكس العادي
+        // 4. معالج البريفكس
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -167,7 +171,7 @@ module.exports = {
             }
         }
 
-        // 5. معالجات القنوات الخاصة (بلاغات / كازينو)
+        // 5. القنوات الخاصة (بلاغ / كازينو)
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
@@ -194,15 +198,12 @@ module.exports = {
             return;
         }
 
-        // 6. البلاك ليست
         try {
             let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
         } catch (e) {}
 
-        // ============================================================
-        // 🌟 7. الردود التلقائية (Auto Responder) 🌟
-        // ============================================================
+        // 6. الردود التلقائية
         try {
             const autoResponses = sql.prepare("SELECT * FROM auto_responses WHERE guildID = ?").all(message.guild.id);
             const content = message.content.trim().toLowerCase();
@@ -218,13 +219,11 @@ module.exports = {
                 }
 
                 if (isMatch) {
-                    // القنوات
                     const allowed = ar.allowedChannels ? JSON.parse(ar.allowedChannels) : [];
                     const ignored = ar.ignoredChannels ? JSON.parse(ar.ignoredChannels) : [];
                     if (allowed.length > 0 && !allowed.includes(message.channel.id)) continue;
                     if (ignored.includes(message.channel.id)) continue;
 
-                    // الكولداون
                     if (message.author.id !== message.guild.ownerId) {
                         const key = `${message.guild.id}-${ar.id}-${message.author.id}`;
                         const now = Date.now();
@@ -236,7 +235,6 @@ module.exports = {
                         }
                     }
 
-                    // الرد
                     let responses = [];
                     try { responses = JSON.parse(ar.response); } catch (e) { responses = [ar.response]; }
                     let images = [];
@@ -249,13 +247,12 @@ module.exports = {
                     if (randomImage) payload.files = [randomImage];
                     
                     await message.reply(payload).catch(() => {});
-                    break; // رد واحد فقط
+                    break; 
                 }
             }
         } catch (err) { console.error("[Auto Responder Error]", err); }
-        // ---------------------------------------------------------
 
-        // 8. تتبع الإحصائيات (للبشر)
+        // 7. تتبع الإحصائيات
         try {
             const userID = message.author.id;
             const guildID = message.guild.id;
@@ -264,7 +261,6 @@ module.exports = {
                 await client.incrementQuestStats(userID, guildID, 'messages', 1);
                 if (message.attachments.size > 0) await client.incrementQuestStats(userID, guildID, 'images', 1);
             }
-
             if (message.mentions.users.size > 0) {
                 message.mentions.users.forEach(async (user) => {
                     if (user.id !== message.author.id && !user.bot) {
@@ -272,7 +268,6 @@ module.exports = {
                     }
                 });
             }
-
             if (message.reference && message.reference.messageId) {
                 try {
                     const repliedMsg = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
@@ -281,13 +276,11 @@ module.exports = {
                     }
                 } catch(e) {}
             }
-
             if (settings && settings.countingChannelID && message.channel.id === settings.countingChannelID) {
                 if (!isNaN(message.content.trim())) {
                     if (client.incrementQuestStats) await client.incrementQuestStats(userID, guildID, 'counting_channel', 1);
                 }
             }
-
             if (message.content.toLowerCase().includes('مياو') || message.content.toLowerCase().includes('meow')) {
                 if (client.incrementQuestStats) await client.incrementQuestStats(userID, guildID, 'meow_count', 1);
                 let level = client.getLevel.get(userID, guildID);
@@ -297,7 +290,6 @@ module.exports = {
                      if (client.checkAchievements) await client.checkAchievements(client, message.member, level, null);
                 }
             }
-
             const isMediaChannel = sql.prepare("SELECT * FROM media_streak_channels WHERE guildID = ? AND channelID = ?").get(guildID, message.channel.id);
             if (isMediaChannel) {
                 if (message.attachments.size > 0 || message.content.includes('http')) {
@@ -305,10 +297,9 @@ module.exports = {
                     return; 
                 }
             }
+        } catch (err) {}
 
-        } catch (err) { console.error("[Stats Tracker Error]:", err); }
-
-        // 9. نظام XP والستريك
+        // 8. نظام XP والستريك
         await handleStreakMessage(message);
         
         let level = client.getLevel.get(message.author.id, message.guild.id);
