@@ -2,13 +2,13 @@ const SQLite = require("better-sqlite3");
 const defaultMarketItems = require("./json/market-items.json");
 
 function setupDatabase(sql) {
-    // تفعيل وضع السرعة القصوى (WAL Mode)
+    // Activate WAL Mode for performance
     sql.pragma('journal_mode = WAL');
     sql.pragma('synchronous = 1');
 
     console.log("[Database] Checking integrity & schema...");
 
-    // 1. جميع الجداول في مصفوفة واحدة (بدلاً من كتابة الأمر 43 مرة)
+    // 1. All tables in one array
     const tables = [
         "CREATE TABLE IF NOT EXISTS levels (user TEXT NOT NULL, guild TEXT NOT NULL, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1, totalXP INTEGER DEFAULT 0, mora INTEGER DEFAULT 0, lastWork INTEGER DEFAULT 0, lastDaily INTEGER DEFAULT 0, dailyStreak INTEGER DEFAULT 0, bank INTEGER DEFAULT 0, lastInterest INTEGER DEFAULT 0, totalInterestEarned INTEGER DEFAULT 0, hasGuard INTEGER DEFAULT 0, guardExpires INTEGER DEFAULT 0, totalVCTime INTEGER DEFAULT 0, lastCollected INTEGER DEFAULT 0, lastRob INTEGER DEFAULT 0, lastGuess INTEGER DEFAULT 0, lastRPS INTEGER DEFAULT 0, lastRoulette INTEGER DEFAULT 0, lastTransfer INTEGER DEFAULT 0, lastDeposit INTEGER DEFAULT 0, shop_purchases INTEGER DEFAULT 0, total_meow_count INTEGER DEFAULT 0, boost_count INTEGER DEFAULT 0, lastPVP INTEGER DEFAULT 0, lastFarmYield INTEGER DEFAULT 0, PRIMARY KEY (user, guild))",
         "CREATE TABLE IF NOT EXISTS settings (guild TEXT PRIMARY KEY, voiceXP INTEGER DEFAULT 0, voiceCooldown INTEGER DEFAULT 60000, customXP INTEGER DEFAULT 25, customCooldown INTEGER DEFAULT 60000, levelUpMessage TEXT, lvlUpTitle TEXT, lvlUpDesc TEXT, lvlUpImage TEXT, lvlUpColor TEXT, lvlUpMention INTEGER DEFAULT 1, streakEmoji TEXT DEFAULT '🔥', questChannelID TEXT, treeBotID TEXT, treeChannelID TEXT, treeMessageID TEXT, countingChannelID TEXT, vipRoleID TEXT, casinoChannelID TEXT, dropGiveawayChannelID TEXT, dropTitle TEXT, dropDescription TEXT, dropColor TEXT, dropFooter TEXT, dropButtonLabel TEXT, dropButtonEmoji TEXT, dropMessageContent TEXT, lastMediaUpdateSent TEXT, lastMediaUpdateMessageID TEXT, lastMediaUpdateChannelID TEXT, shopChannelID TEXT, bumpChannelID TEXT, customRoleAnchorID TEXT, customRolePanelTitle TEXT, customRolePanelDescription TEXT, customRolePanelImage TEXT, customRolePanelColor TEXT, lastQuestPanelChannelID TEXT, streakTimerChannelID TEXT, dailyTimerChannelID TEXT, weeklyTimerChannelID TEXT)",
@@ -52,17 +52,30 @@ function setupDatabase(sql) {
         "CREATE TABLE IF NOT EXISTS role_menus_master (message_id TEXT PRIMARY KEY, custom_id TEXT UNIQUE NOT NULL, is_locked BOOLEAN NOT NULL DEFAULT 0)",
         "CREATE TABLE IF NOT EXISTS role_settings (role_id TEXT PRIMARY KEY, anti_roles TEXT, is_removable BOOLEAN NOT NULL DEFAULT 1)",
         "CREATE TABLE IF NOT EXISTS role_menu_items (message_id TEXT NOT NULL, value TEXT NOT NULL, role_id TEXT NOT NULL, description TEXT, emoji TEXT, PRIMARY KEY (message_id, value))",
-        "CREATE TABLE IF NOT EXISTS rainbow_roles (roleID TEXT PRIMARY KEY, guildID TEXT NOT NULL)"
+        "CREATE TABLE IF NOT EXISTS rainbow_roles (roleID TEXT PRIMARY KEY, guildID TEXT NOT NULL)",
+        
+        // ( 🌟 New Auto-Response Table 🌟 )
+        `CREATE TABLE IF NOT EXISTS auto_responses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guildID TEXT NOT NULL,
+            trigger TEXT NOT NULL,
+            response TEXT NOT NULL,
+            images TEXT, 
+            matchType TEXT DEFAULT 'exact', 
+            cooldown INTEGER DEFAULT 0,
+            allowedChannels TEXT, 
+            ignoredChannels TEXT, 
+            UNIQUE(guildID, trigger)
+        )`
     ];
 
-    // تشغيل إنشاء الجداول دفعة واحدة
     sql.transaction((tbls) => {
         tbls.forEach(t => sql.prepare(t).run());
     })(tables);
 
     sql.prepare("DROP TABLE IF EXISTS command_channels").run();
 
-    // 2. نظام التحديث الذكي (Migration System)
+    // Migration logic
     function ensureColumn(table, column, typeDef) {
         try {
             const cols = sql.prepare(`PRAGMA table_info(${table})`).all();
@@ -70,13 +83,12 @@ function setupDatabase(sql) {
                 console.log(`[Migration] Adding '${column}' to '${table}'...`);
                 sql.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${typeDef}`).run();
             }
-        } catch (e) { /* Table might not exist yet, which is fine */ }
+        } catch (e) { }
     }
 
-    // Levels Table
+    // Perform Migrations
     ['mora', 'lastWork', 'lastDaily', 'dailyStreak', 'bank', 'lastInterest', 'totalInterestEarned', 'hasGuard', 'guardExpires', 'lastCollected', 'totalVCTime', 'lastRob', 'lastGuess', 'lastRPS', 'lastRoulette', 'lastTransfer', 'lastDeposit', 'shop_purchases', 'total_meow_count', 'boost_count', 'lastPVP', 'lastFarmYield'].forEach(col => ensureColumn('levels', col, 'INTEGER DEFAULT 0'));
 
-    // Stats Tables
     ['water_tree', 'counting_channel', 'meow_count', 'streaming_minutes', 'disboard_bumps'].forEach(col => {
         ensureColumn('user_daily_stats', col, 'INTEGER DEFAULT 0');
         ensureColumn('user_weekly_stats', col, 'INTEGER DEFAULT 0');
@@ -84,7 +96,6 @@ function setupDatabase(sql) {
     ensureColumn('user_total_stats', 'total_vc_minutes', 'INTEGER DEFAULT 0');
     ensureColumn('user_total_stats', 'total_disboard_bumps', 'INTEGER DEFAULT 0');
 
-    // Buffs & Streaks
     ensureColumn('user_buffs', 'buffType', 'TEXT');
     ensureColumn('user_buffs', 'multiplier', 'REAL DEFAULT 0.0');
     ensureColumn('streaks', 'hasReceivedFreeShield', 'INTEGER DEFAULT 0');
@@ -93,15 +104,7 @@ function setupDatabase(sql) {
     ensureColumn('streaks', 'highestStreak', 'INTEGER DEFAULT 0');
     ensureColumn('streaks', 'has12hWarning', 'INTEGER DEFAULT 0');
     
-    // Settings & Others (شاملة قنوات التوقيت الجديدة)
-    const settingsCols = [
-        "questChannelID", "treeBotID", "treeChannelID", "treeMessageID", "countingChannelID", "vipRoleID",
-        "casinoChannelID", "dropGiveawayChannelID", "dropTitle", "dropDescription", "dropColor", "dropFooter",
-        "dropButtonLabel", "dropButtonEmoji", "dropMessageContent", "lastMediaUpdateSent", "lastMediaUpdateMessageID",
-        "lastMediaUpdateChannelID", "shopChannelID", "bumpChannelID", "customRoleAnchorID", "customRolePanelTitle",
-        "customRolePanelDescription", "customRolePanelImage", "customRolePanelColor", "lastQuestPanelChannelID",
-        "streakTimerChannelID", "dailyTimerChannelID", "weeklyTimerChannelID" // (الأعمدة الجديدة)
-    ];
+    const settingsCols = ["questChannelID", "treeBotID", "treeChannelID", "treeMessageID", "countingChannelID", "vipRoleID", "casinoChannelID", "dropGiveawayChannelID", "dropTitle", "dropDescription", "dropColor", "dropFooter", "dropButtonLabel", "dropButtonEmoji", "dropMessageContent", "lastMediaUpdateSent", "lastMediaUpdateMessageID", "lastMediaUpdateChannelID", "shopChannelID", "bumpChannelID", "customRoleAnchorID", "customRolePanelTitle", "customRolePanelDescription", "customRolePanelImage", "customRolePanelColor", "lastQuestPanelChannelID", "streakTimerChannelID", "dailyTimerChannelID", "weeklyTimerChannelID"];
     settingsCols.forEach(col => ensureColumn('settings', col, 'TEXT'));
     
     ensureColumn('quest_notifications', 'levelNotif', 'INTEGER DEFAULT 1');
@@ -110,12 +113,12 @@ function setupDatabase(sql) {
     ensureColumn('active_giveaways', 'isFinished', 'INTEGER DEFAULT 0');
     ensureColumn('media_streak_channels', 'lastReminderMessageID', 'TEXT');
 
-    // 3. التحقق من عناصر الماركت
+    // 3. Market Items Init
     const itemsCount = sql.prepare("SELECT count(*) as count FROM market_items").get();
     if (itemsCount.count === 0) {
-        console.log("[Market] Market is empty. Populating default items...");
+        console.log("[Market] Installing default items...");
         const insertItem = sql.prepare("INSERT INTO market_items (id, name, description, currentPrice) VALUES (@id, @name, @description, @price)");
-        sql.transaction(() => { defaultMarketItems.forEach((item) => insertItem.run(item)); })();
+        sql.transaction((items) => items.forEach((item) => insertItem.run(item)))(defaultMarketItems);
     }
 
     console.log("[Database] ✅ All tables checked, updated, and ready.");
