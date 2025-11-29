@@ -1,17 +1,15 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, SlashCommandBuilder } = require("discord.js");
-const path = require('path'); // ( 🌟 إضافة مكتبة path 🌟 )
+const path = require('path');
 
-// ( 🌟 التصحيح: استخدام المسار الديناميكي للوصول للملف 🌟 )
-const weaponsConfigPath = path.join(__dirname, '..', 'json', 'weapons-config.json');
+// تصحيح المسارات
+const weaponsConfigPath = path.join(__dirname, '..', '..', 'json', 'weapons-config.json');
 const weaponsConfig = require(weaponsConfigPath); 
-
-const pvpCorePath = path.join(__dirname, '..', 'handlers', 'pvp-core.js');
+const pvpCorePath = path.join(__dirname, '..', '..', 'handlers', 'pvp-core.js');
 const { getUserRace, getWeaponData, BASE_HP, HP_PER_LEVEL } = require(pvpCorePath); 
-// ----------------------------------------------------------
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
-const ROWS_PER_PAGE = 10;
+const ROWS_PER_PAGE = 5; // ( 🌟 تم التعديل: 5 أشخاص في الصفحة 🌟 )
 
 const IMAGES = {
     level: 'https://i.postimg.cc/9FWddtV8/123.png',
@@ -136,6 +134,7 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
             allUsers = stats.sort((a, b) => b.damage - a.damage);
         }
 
+        // تحديد الصفحة بناء على العضو
         if (targetUserId) {
             const index = allUsers.findIndex(u => (u.user || u.userID) === targetUserId);
             if (index !== -1) {
@@ -160,18 +159,21 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
                 const rank = (page - 1) * ROWS_PER_PAGE + i + 1;
                 const rankEmoji = getRankEmoji(rank);
                 
+                // --- ( 🌟 تمييز العضو 🌟 ) ---
                 const isMe = uID === targetUserId;
-                const namePrefix = isMe ? "> **" : "";
-                const nameSuffix = isMe ? "** <" : "";
+                const pin = isMe ? "📍 " : ""; // الدبوس
+                // التظليل يكون للنصوص الموجودة تحت الاسم وليس للاسم نفسه
+                const styleStart = isMe ? "**" : ""; 
+                const styleEnd = isMe ? "**" : "";
                 
-                let line = `${rankEmoji} ${namePrefix}<@${uID}>${nameSuffix}\n`;
+                let line = `${rankEmoji} ${pin}<@${uID}>\n`;
 
-                if (type === 'level') line += `> **XP**: \`${user.totalXP.toLocaleString()}\` (Lvl: ${user.level})`;
-                else if (type === 'weekly_xp' || type === 'daily_xp') line += `> **Txt**: \`${(user.messages||0).toLocaleString()}\` | **VC**: \`${(user.vc_minutes||0).toLocaleString()}\``;
-                else if (type === 'mora') line += `> **Mora**: \`${((user.mora||0) + (user.bank||0)).toLocaleString()}\` ${EMOJI_MORA}`;
-                else if (type === 'streak' || type === 'media_streak') line += `> **Streak**: \`${user.streakCount}\` ${type === 'media_streak' ? EMOJI_MEDIA_STREAK : '🔥'}`;
-                else if (type === 'achievements') line += `> **Count**: \`${user.count}\` 🏆`;
-                else if (type === 'strongest') line += `> **DMG**: \`${user.damage}\` | **HP**: \`${user.hp}\``;
+                if (type === 'level') line += `> ${styleStart}XP: \`${user.totalXP.toLocaleString()}\` (Lvl: ${user.level})${styleEnd}`;
+                else if (type === 'weekly_xp' || type === 'daily_xp') line += `> ${styleStart}Txt: \`${(user.messages||0).toLocaleString()}\` | VC: \`${(user.vc_minutes||0).toLocaleString()}\`${styleEnd}`;
+                else if (type === 'mora') line += `> ${styleStart}Mora: \`${((user.mora||0) + (user.bank||0)).toLocaleString()}\` ${EMOJI_MORA}${styleEnd}`;
+                else if (type === 'streak' || type === 'media_streak') line += `> ${styleStart}Streak: \`${user.streakCount}\` ${type === 'media_streak' ? EMOJI_MEDIA_STREAK : '🔥'}${styleEnd}`;
+                else if (type === 'achievements') line += `> ${styleStart}Count: \`${user.count}\` 🏆${styleEnd}`;
+                else if (type === 'strongest') line += `> ${styleStart}DMG: \`${user.damage}\` | HP: \`${user.hp}\`${styleEnd}`;
 
                 description += line + "\n\n";
             }
@@ -201,9 +203,7 @@ function createButtons(activeId, page, totalPages) {
         new ButtonBuilder().setCustomId('leaderboard_next').setEmoji('<:right:1439164491072929915>').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages)
     );
 
-    if (activeId === 'streak' || activeId === 'media_streak') {
-        rowCat.components[2].setLabel(activeId === 'streak' ? 'ميديا' : 'عادي'); 
-    }
+    // ( 🌟 تم إزالة تغيير الليبل، الزر سيبقى كما هو 🔥 لكن يغير المحتوى 🌟 )
     
     return [rowCat, rowNav];
 }
@@ -221,7 +221,7 @@ module.exports = {
         .addIntegerOption(opt => opt.setName('صفحة').setDescription('رقم الصفحة')),
 
     name: "top",
-    aliases: ["توب", "المتصدرين", "topmora", "topstreak", "اغنى", "اقوى", "topweek", "توب-الاسبوع"],
+    aliases: ["توب", "المتصدرين", "topmora", "topstreak", "اغنى", "اقوى", "topweek", "توب-الاسبوع", "t", "lb"],
     category: "Leveling",
     cooldown: 10,
     description: "يعرض لوحات الصدارة.",
@@ -246,14 +246,39 @@ module.exports = {
             client = message.client;
             user = message.author;
             
-            const cmd = message.content.split(' ')[0].slice(1).toLowerCase(); 
+            // --- ( 🌟 منطق تحليل الاختصارات المتقدم 🌟 ) ---
+            // هذا الجزء يسمح بكتابة: t week, t daily, توب يومي ...
+            let cmd = message.content.split(' ')[0].toLowerCase();
+            if (cmd.startsWith(args.prefix)) cmd = cmd.slice(args.prefix.length);
+
+            // 1. التحقق من الأمر الأساسي (للاختصارات المباشرة مثل topweek)
             if (cmd.includes('mora') || cmd.includes('اغنى')) argType = 'mora';
             else if (cmd.includes('streak')) argType = 'streak';
             else if (cmd.includes('week') || cmd.includes('اسبوع')) argType = 'weekly_xp';
             else if (cmd.includes('daily') || cmd.includes('يومي')) argType = 'daily_xp';
             else if (cmd.includes('اقوى')) argType = 'strongest';
-            
-            if (args && !isNaN(args[0])) currentPage = parseInt(args[0]);
+            else if (cmd.includes('achievements') || cmd.includes('انجازات')) argType = 'achievements';
+
+            // 2. التحقق من الـ Arguments (للاختصارات المركبة مثل t week)
+            if (args && args.length > 0) {
+                const firstArg = args[0].toLowerCase();
+                
+                // قائمة كلمات اليومي
+                if (['day', 'daily', 'd', 'يومي', 'يوم'].includes(firstArg)) argType = 'daily_xp';
+                // قائمة كلمات الأسبوعي
+                else if (['week', 'weekly', 'w', 'اسبوع', 'اسبوعي'].includes(firstArg)) argType = 'weekly_xp';
+                // قائمة كلمات المورا
+                else if (['mora', 'money', 'coins', 'مورا', 'فلوس'].includes(firstArg)) argType = 'mora';
+                // قائمة كلمات الستريك
+                else if (['streak', 'st', 'ستريك'].includes(firstArg)) argType = 'streak';
+                // قائمة كلمات الإنجازات
+                else if (['achievements', 'ach', 'انجازات'].includes(firstArg)) argType = 'achievements';
+                
+                // التحقق من رقم الصفحة
+                const potentialPage = parseInt(firstArg);
+                if (!isNaN(potentialPage)) currentPage = potentialPage;
+                else if (args[1] && !isNaN(parseInt(args[1]))) currentPage = parseInt(args[1]);
+            }
         }
 
         const sql = client.sql;
@@ -287,10 +312,12 @@ module.exports = {
             else if (i.customId.startsWith('top_')) {
                 const clicked = i.customId.replace('top_', '');
                 if (clicked === 'level') {
+                    // التبديل: Level -> Weekly -> Daily -> Level
                     if (argType === 'level') argType = 'weekly_xp';
                     else if (argType === 'weekly_xp') argType = 'daily_xp';
                     else argType = 'level';
                 } else if (clicked === 'streak') {
+                    // التبديل: Streak -> Media Streak -> Streak
                     argType = (argType === 'streak') ? 'media_streak' : 'streak';
                 } else {
                     argType = clicked;
