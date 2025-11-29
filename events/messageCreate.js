@@ -1,9 +1,23 @@
 const { Events, PermissionsBitField } = require("discord.js");
 const { handleStreakMessage, handleMediaStreakMessage, calculateBuffMultiplier } = require("../streak-handler.js");
 const { checkPermissions, checkCooldown } = require("../permission-handler.js");
-const { processReportLogic, sendReportError, getReportSettings } = require("../handlers/report-handler.js");
+const { processReportLogic, sendReportError } = require("../handlers/report-handler.js");
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
+
+// --- ( دالة تنظيف النص العربي ) ---
+function normalizeArabic(text) {
+    if (!text) return "";
+    return text
+        .replace(/[أإآ]/g, 'ا')   // توحيد الألف
+        .replace(/ى/g, 'ي')       // توحيد الياء
+        .replace(/ة/g, 'ه')       // توحيد التاء المربوطة
+        .replace(/[\u064B-\u065F]/g, '') // إزالة التشكيل
+        .replace(/[\u200B-\u200D\uFEFF]/g, '') // إزالة الرموز المخفية
+        .trim()
+        .toLowerCase();
+}
+// --------------------------------
 
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
@@ -63,19 +77,21 @@ module.exports = {
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         
-        // 2. معالج الاختصارات (محسن للعربية)
+        // --- ( 🌟 2. معالج الاختصارات الذكي 🌟 ) ---
         try {
-            // تنظيف الرسالة من الرموز المخفية التي تأتي مع العربي أحياناً
-            // (Zero-width space, Left-to-right mark, etc.)
-            const cleanContent = message.content.replace(/[\u200B-\u200D\uFEFF]/g, '');
+            // تنظيف الكلمة القادمة من الرسالة
+            const rawContent = message.content.trim();
+            const firstWordRaw = rawContent.split(/ +/)[0];
+            const cleanInput = normalizeArabic(firstWordRaw);
+
+            // جلب جميع الاختصارات المسجلة لهذه القناة
+            const allShortcuts = sql.prepare("SELECT shortcutWord, commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ?").all(message.guild.id, message.channel.id);
             
-            const argsRaw = cleanContent.trim().split(/ +/);
-            const shortcutWord = argsRaw[0].toLowerCase(); 
+            // البحث عن تطابق "ذكي" (بعد تنظيف الكلمات المسجلة أيضاً)
+            const matchedShortcut = allShortcuts.find(s => normalizeArabic(s.shortcutWord) === cleanInput);
             
-            const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
-            
-            if (shortcut) {
-                const cmd = client.commands.get(shortcut.commandName);
+            if (matchedShortcut) {
+                const cmd = client.commands.get(matchedShortcut.commandName);
                 if (cmd) {
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
@@ -84,15 +100,18 @@ module.exports = {
                              return;
                         }
                         try {
-                            await cmd.execute(message, argsRaw.slice(1)); 
+                            // تمرير باقي الرسالة كـ args
+                            const args = rawContent.split(/ +/).slice(1);
+                            await cmd.execute(message, args); 
                         } catch (e) { console.error(e); }
                     }
-                    return; 
+                    return; // (توقف هنا)
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
+        // ------------------------------------------------------------
 
-        // 3. البريفكس
+        // 3. معالج البريفكس العادي
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -222,7 +241,7 @@ module.exports = {
         await handleStreakMessage(message);
         
         let level = client.getLevel.get(message.author.id, message.guild.id);
-        if (!level) level = { ...(client.defaultData || {}), ...completeDefaultLevelData, user: message.author.id, guild: message.guild.id };
+        if (!level) level = { ...(client.defaultData || {}), xp: 0, level: 1, totalXP: 0, user: message.author.id, guild: message.guild.id };
         
         let getXpfromDB = settings?.customXP || 25;
         let getCooldownfromDB = settings?.customCooldown || 60000;
