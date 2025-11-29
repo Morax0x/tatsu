@@ -93,6 +93,8 @@ module.exports = {
                     if (client.incrementQuestStats) {
                         // 1 means one watering action
                         await client.incrementQuestStats(userID, guildID, 'water_tree', 1);
+                        // Optional react to show it tracked
+                        // newMessage.react('💧').catch(() => {}); 
                     } else {
                         console.error("[TREE ERROR] incrementQuestStats function missing in client!");
                     }
