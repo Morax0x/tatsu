@@ -5,6 +5,17 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
+// --- ( 🌟 خريطة التحويل اليدوية للأوامر 🌟 ) ---
+// هنا نربط الأسماء المستعارة بالأسماء الحقيقية للملفات
+const COMMAND_ALIASES_MAP = {
+    'balance': 'mora',  // إذا طلب balance شغل mora
+    'credits': 'mora',
+    'bal': 'mora',
+    'رصيد': 'mora',
+    'مورا': 'mora',
+    // أضف أي تحويلات أخرى هنا إذا احتجت
+};
+
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
     const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
@@ -63,28 +74,33 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         
         // ============================================================
-        // 🌟 2. معالج الاختصارات (المُحسّن للأسماء المستعارة) 🌟
+        // 🌟 2. معالج الاختصارات (مع التحويل اليدوي) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // 1. البحث في القناة الحالية
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            // 2. البحث العام (في السيرفر كله)
             if (!shortcut) {
                 shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
                     .get(message.guild.id, shortcutWord);
             }
             
             if (shortcut) {
-                console.log(`[Shortcut Debug] Found shortcut '${shortcutWord}' pointing to '${shortcut.commandName}'`);
+                let targetCommandName = shortcut.commandName;
 
-                // 🌟 التعديل الهام هنا: البحث عن الاسم الأصلي OR الاسم المستعار (Aliases) 🌟
-                const cmd = client.commands.get(shortcut.commandName) || 
-                            client.commands.find(c => c.aliases && c.aliases.includes(shortcut.commandName));
+                // ( 🌟 هنا التعديل: التحقق من خريطة التحويل 🌟 )
+                if (COMMAND_ALIASES_MAP[targetCommandName]) {
+                    console.log(`[Shortcut Fix] Mapping '${targetCommandName}' to '${COMMAND_ALIASES_MAP[targetCommandName]}'`);
+                    targetCommandName = COMMAND_ALIASES_MAP[targetCommandName];
+                }
+
+                console.log(`[Shortcut Debug] Shortcut '${shortcutWord}' -> Target: '${targetCommandName}'`);
+
+                const cmd = client.commands.get(targetCommandName) || 
+                            client.commands.find(c => c.aliases && c.aliases.includes(targetCommandName));
 
                 if (cmd) {
                     console.log(`[Shortcut Debug] Executing command: ${cmd.name}`);
@@ -98,9 +114,9 @@ module.exports = {
                             await cmd.execute(message, argsRaw.slice(1)); 
                         } catch (e) { console.error(e); }
                     }
-                    return; // توقف هنا، تم التنفيذ
+                    return; 
                 } else {
-                    console.log(`[Shortcut Error] Command '${shortcut.commandName}' not found in bot files!`);
+                    console.log(`[Shortcut Error] Command '${targetCommandName}' still not found! Check your filenames.`);
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
