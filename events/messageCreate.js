@@ -5,6 +5,37 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
+// --- ( القاموس الشامل للاختصارات ) ---
+const COMMAND_ALIASES_MAP = {
+    // المورا / الرصيد
+    'balance': 'mora', 'bal': 'mora', 'b': 'mora', 'credits': 'mora', 'c': 'mora', 
+    'رصيد': 'mora', 'فلوس': 'mora', 'مورا': 'mora', '0': 'mora',
+
+    // الرانك / اللفل
+    'rank': 'rank', 'r': 'rank', 'level': 'rank', 'lvl': 'rank', 'l': 'rank',
+    'رانك': 'rank', 'لفل': 'rank', 'مستوى': 'rank', 'خبرة': 'rank',
+
+    // التوب / المتصدرين
+    'top': 'top', 't': 'top', 'leaderboard': 'top', 'lb': 'top',
+    'توب': 'top', 'الاوائل': 'top', 'المتصدرين': 'top', 'ترتيب': 'top',
+
+    // اليومي / الراتب
+    'daily': 'daily', 'd': 'daily', 'day': 'daily',
+    'يومي': 'daily', 'راتب': 'daily', 'يومية': 'daily', 'هدية': 'daily',
+
+    // البروفايل
+    'profile': 'profile', 'p': 'profile', 'user': 'profile',
+    'بروفايل': 'profile', 'شخصية': 'profile', 'حسابي': 'profile', 'هويتي': 'profile',
+
+    // التحويل
+    'transfer': 'trans', 'trans': 'trans', 'pay': 'trans', 'give': 'trans',
+    'تحويل': 'trans', 'حول': 'trans',
+
+    // البنك
+    'bank': 'bank', 'bnk': 'bank', 'dep': 'deposit', 'wd': 'withdraw',
+    'بنك': 'bank', 'ايداع': 'deposit', 'سحب': 'withdraw'
+};
+
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
     const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
@@ -38,6 +69,7 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
+        // 1. كشف البومب
         if (message.author.id === DISBOARD_BOT_ID) {
             let bumperID = null;
             if (message.interaction && message.interaction.commandName === 'bump') {
@@ -63,30 +95,33 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         
         // ============================================================
-        // 🌟 2. معالج الاختصارات (بحث ديناميكي ذكي) 🌟
+        // 🌟 2. معالج الاختصارات (مع القاموس الشامل) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // 1. البحث عن الاختصار في الداتابيس
+            // البحث في القناة الحالية
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
+            // البحث العام (في السيرفر كله)
             if (!shortcut) {
                 shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
                     .get(message.guild.id, shortcutWord);
             }
             
             if (shortcut) {
-                const targetName = shortcut.commandName.toLowerCase();
+                let targetCommandName = shortcut.commandName.toLowerCase(); 
 
-                // 2. البحث الذكي عن الأمر (الاسم الأصلي أو المستعار)
-                // هذه الدالة تبحث في كل الأوامر المحملة
-                const cmd = client.commands.find(c => 
-                    c.name === targetName || 
-                    (c.aliases && c.aliases.includes(targetName))
-                );
+                // ( الترجمة من القاموس )
+                if (COMMAND_ALIASES_MAP[targetCommandName]) {
+                    targetCommandName = COMMAND_ALIASES_MAP[targetCommandName];
+                }
+
+                // البحث عن الأمر
+                const cmd = client.commands.get(targetCommandName) || 
+                            client.commands.find(c => c.aliases && c.aliases.includes(targetCommandName));
 
                 if (cmd) {
                     if (checkPermissions(message, cmd)) {
@@ -99,7 +134,7 @@ module.exports = {
                             await cmd.execute(message, argsRaw.slice(1)); 
                         } catch (e) { console.error(e); }
                     }
-                    return; // (توقف هنا، تم التنفيذ)
+                    return; 
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
@@ -111,10 +146,7 @@ module.exports = {
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
-            
-            // نفس البحث الذكي للأوامر العادية
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
-            
             if (command) {
                 let isAllowed = false;
                 if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
