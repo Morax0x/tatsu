@@ -3,14 +3,14 @@ const { SlashCommandBuilder, ActivityType, PermissionsBitField } = require('disc
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('تغيير-الحالة')
-        .setDescription('تغيير حالة البوت (يظهر كفقاعة أو نشاط).')
+        .setDescription('تغيير حالة البوت (الفقاعة).')
         .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
         .addStringOption(option =>
             option.setName('النوع')
-                .setDescription('اختر Custom لتظهر الفقاعة')
+                .setDescription('نوع الحالة')
                 .setRequired(true)
                 .addChoices(
-                    { name: 'Custom (فقاعة كلام 💬)', value: 'Custom' }, // <-- هذا هو اللي تبيه
+                    { name: 'Custom (فقاعة كلام 💬)', value: 'Custom' },
                     { name: 'Playing (يلعب)', value: 'Playing' },
                     { name: 'Watching (يشاهد)', value: 'Watching' },
                     { name: 'Listening (يستمع)', value: 'Listening' },
@@ -18,7 +18,7 @@ module.exports = {
                 ))
         .addStringOption(option =>
             option.setName('النص')
-                .setDescription('الكلام اللي يظهر داخل الفقاعة')
+                .setDescription('اكتب الإيموجي (العادي) والنص هنا')
                 .setRequired(true)),
 
     name: 'set-status',
@@ -33,14 +33,12 @@ module.exports = {
         let activityData;
 
         if (typeStr === 'Custom') {
-            // ( 🌟 هذا الكود هو اللي يطلع الفقاعة 🌟 )
             activityData = {
                 name: content, 
                 type: ActivityType.Custom, 
-                state: content // (مهم جداً: النص لازم يكون هنا عشان يطلع فقاعة)
+                state: content // (هنا يظهر النص والإيموجي داخل الفقاعة)
             };
         } else {
-            // (للأنواع الثانية العادية)
             let type;
             switch (typeStr) {
                 case 'Playing': type = ActivityType.Playing; break;
@@ -51,12 +49,11 @@ module.exports = {
             activityData = { name: content, type: type };
         }
 
-        // تطبيق الحالة
         interaction.client.user.setPresence({
             activities: [activityData],
             status: 'online',
         });
 
-        await interaction.reply({ content: `✅ تم تغيير الحالة إلى: **${typeStr}**\n💬 النص: \`${content}\``, ephemeral: true });
+        await interaction.reply({ content: `✅ تم التحديث!\nالنوع: **${typeStr}**\nالمحتوى: \`${content}\``, ephemeral: true });
     },
 };
