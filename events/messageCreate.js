@@ -5,20 +5,6 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// --- ( دالة تنظيف النص العربي ) ---
-function normalizeArabic(text) {
-    if (!text) return "";
-    return text
-        .replace(/[أإآ]/g, 'ا')   // توحيد الألف
-        .replace(/ى/g, 'ي')       // توحيد الياء
-        .replace(/ة/g, 'ه')       // توحيد التاء المربوطة
-        .replace(/[\u064B-\u065F]/g, '') // إزالة التشكيل
-        .replace(/[\u200B-\u200D\uFEFF]/g, '') // إزالة الرموز المخفية
-        .trim()
-        .toLowerCase();
-}
-// --------------------------------
-
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
     const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
@@ -77,21 +63,19 @@ module.exports = {
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         
-        // --- ( 🌟 2. معالج الاختصارات الذكي 🌟 ) ---
+        // --- ( 🌟 2. معالج الاختصارات (الأولوية القصوى - المباشر) 🌟 ) ---
         try {
-            // تنظيف الكلمة القادمة من الرسالة
-            const rawContent = message.content.trim();
-            const firstWordRaw = rawContent.split(/ +/)[0];
-            const cleanInput = normalizeArabic(firstWordRaw);
+            // تقسيم الرسالة
+            const argsRaw = message.content.trim().split(/ +/);
+            // أخذ الكلمة الأولى وتحويلها لأحرف صغيرة (للغة الانجليزية)
+            const shortcutWord = argsRaw[0].toLowerCase(); 
 
-            // جلب جميع الاختصارات المسجلة لهذه القناة
-            const allShortcuts = sql.prepare("SELECT shortcutWord, commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ?").all(message.guild.id, message.channel.id);
+            // البحث المباشر في قاعدة البيانات
+            // (بدون Normalization معقدة لضمان التطابق الحرفي)
+            const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
             
-            // البحث عن تطابق "ذكي" (بعد تنظيف الكلمات المسجلة أيضاً)
-            const matchedShortcut = allShortcuts.find(s => normalizeArabic(s.shortcutWord) === cleanInput);
-            
-            if (matchedShortcut) {
-                const cmd = client.commands.get(matchedShortcut.commandName);
+            if (shortcut) {
+                const cmd = client.commands.get(shortcut.commandName);
                 if (cmd) {
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
@@ -100,16 +84,15 @@ module.exports = {
                              return;
                         }
                         try {
-                            // تمرير باقي الرسالة كـ args
-                            const args = rawContent.split(/ +/).slice(1);
-                            await cmd.execute(message, args); 
+                            // تنفيذ الأمر وتمرير باقي الكلام كـ args
+                            await cmd.execute(message, argsRaw.slice(1)); 
                         } catch (e) { console.error(e); }
                     }
-                    return; // (توقف هنا)
+                    return; // ( 🛑 توقف هنا - لا تكمل لباقي الكود )
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
-        // ------------------------------------------------------------
+        // -------------------------------------------------------------------
 
         // 3. معالج البريفكس العادي
         let Prefix = "-";
