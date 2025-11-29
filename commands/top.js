@@ -1,10 +1,11 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, SlashCommandBuilder } = require("discord.js");
 
-// --- ( 🌟 تم تصحيح المسارات لتناسب موقع الملف الحالي 🌟 ) ---
-// (نقطتين فقط ../ لأن الملف موجود في commands مباشرة)
+// --- ( 🌟 تم تصحيح المسار هنا: نقطتين فقط 🌟 ) ---
 const weaponsConfig = require('../json/weapons-config.json'); 
+// ---------------------------------------------------
+
+// لاحظ: تأكد من مسار ملف pvp-core أيضاً. إذا كان في handlers، فالوصول له من commands يحتاج ../
 const { getUserRace, getWeaponData, BASE_HP, HP_PER_LEVEL } = require('../handlers/pvp-core.js'); 
-// ----------------------------------------------------------
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
@@ -28,7 +29,6 @@ function getRankEmoji(rank) {
     return `#${rank}`;
 }
 
-// دوال الوقت
 function getWeekStartDateString() {
     const now = new Date();
     const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7;
@@ -43,7 +43,6 @@ function getTodayDateString() {
 
 function getTimeRemaining(type) {
     const now = new Date();
-    // توقيت مكة (UTC+3)
     const ksaOffset = 3 * 60 * 60 * 1000;
     const nowKSA = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + ksaOffset);
 
@@ -51,10 +50,10 @@ function getTimeRemaining(type) {
     if (type === 'daily') {
         end = new Date(nowKSA);
         end.setHours(24, 0, 0, 0);
-    } else { // weekly (Friday)
+    } else { 
         end = new Date(nowKSA);
         const day = nowKSA.getDay();
-        const diff = (5 - day + 7) % 7; // 5 = الجمعة
+        const diff = (5 - day + 7) % 7; 
         end.setDate(nowKSA.getDate() + diff + (diff === 0 && nowKSA.getHours() >= 0 ? 7 : 0));
         end.setHours(0, 0, 0, 0);
     }
@@ -76,7 +75,6 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
     let totalPages = 0;
 
     try {
-        // 1. جلب البيانات حسب النوع
         if (type === 'level') {
             embed.setTitle(`✥ اعـلـى الـمصـنـفـيـن بالمسـتويات`);
             allUsers = sql.prepare("SELECT * FROM levels WHERE guild = ? ORDER BY totalXP DESC").all(guild.id);
@@ -90,7 +88,7 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
             `).all(guild.id, weekStart);
             embed.setFooter({ text: `باقي: ${getTimeRemaining('weekly')} لتـحديـث الترتيـب` });
 
-        } else if (type === 'daily_xp') { // (النوع الجديد)
+        } else if (type === 'daily_xp') {
             embed.setTitle(`✥ اعـلـى الـمصـنـفـيـن اليـوم`);
             const today = getTodayDateString();
             allUsers = sql.prepare(`
@@ -119,7 +117,6 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
 
         } else if (type === 'strongest') {
             embed.setTitle(`✥ لوحـة صـدارة الاقـوى`);
-            // (حساب القوة - يحتاج لتحسين الأداء مستقبلاً لكنه يعمل)
             const weapons = sql.prepare("SELECT * FROM user_weapons WHERE guildID = ?").all(guild.id);
             let stats = [];
             const getLvl = sql.prepare("SELECT level FROM levels WHERE guild = ? AND user = ?");
@@ -137,7 +134,6 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
             allUsers = stats.sort((a, b) => b.damage - a.damage);
         }
 
-        // 2. تحديد الصفحة (إذا طلب المستخدم البحث عن نفسه)
         if (targetUserId) {
             const index = allUsers.findIndex(u => (u.user || u.userID) === targetUserId);
             if (index !== -1) {
@@ -148,7 +144,6 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
         totalPages = Math.ceil(allUsers.length / ROWS_PER_PAGE) || 1;
         page = Math.max(1, Math.min(page, totalPages));
 
-        // إضافة رقم الصفحة للفوتـر الموجود
         let currentFooter = embed.data.footer ? embed.data.footer.text : "";
         embed.setFooter({ text: `${currentFooter ? currentFooter + " | " : ""}صفحة ${page} / ${totalPages}` });
 
@@ -163,14 +158,12 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
                 const rank = (page - 1) * ROWS_PER_PAGE + i + 1;
                 const rankEmoji = getRankEmoji(rank);
                 
-                // تمييز المستخدم
                 const isMe = uID === targetUserId;
                 const namePrefix = isMe ? "> **" : "";
                 const nameSuffix = isMe ? "** <" : "";
                 
                 let line = `${rankEmoji} ${namePrefix}<@${uID}>${nameSuffix}\n`;
 
-                // تفاصيل كل نوع
                 if (type === 'level') line += `> **XP**: \`${user.totalXP.toLocaleString()}\` (Lvl: ${user.level})`;
                 else if (type === 'weekly_xp' || type === 'daily_xp') line += `> **Txt**: \`${(user.messages||0).toLocaleString()}\` | **VC**: \`${(user.vc_minutes||0).toLocaleString()}\``;
                 else if (type === 'mora') line += `> **Mora**: \`${((user.mora||0) + (user.bank||0)).toLocaleString()}\` ${EMOJI_MORA}`;
@@ -192,7 +185,6 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
 }
 
 function createButtons(activeId, page, totalPages) {
-    // الصف الأول: التصنيفات
     const rowCat = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('top_level').setEmoji('<a:levelup:1437805366048985290>').setStyle(activeId === 'level' ? ButtonStyle.Primary : ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('top_mora').setEmoji('<:mora:1435647151349698621>').setStyle(activeId === 'mora' ? ButtonStyle.Primary : ButtonStyle.Secondary),
@@ -201,14 +193,12 @@ function createButtons(activeId, page, totalPages) {
         new ButtonBuilder().setCustomId('top_achievements').setEmoji('<a:mTrophy:1438797228826300518>').setStyle(activeId === 'achievements' ? ButtonStyle.Primary : ButtonStyle.Secondary)
     );
 
-    // الصف الثاني: التنقل + الزر الجديد (اعثر علي)
     const rowNav = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('leaderboard_prev').setEmoji('<:left:1439164494759723029>').setStyle(ButtonStyle.Secondary).setDisabled(page === 1),
-        new ButtonBuilder().setCustomId('leaderboard_find_me').setLabel('أين أنا؟').setEmoji('🧐').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('leaderboard_find_me').setEmoji('📍').setStyle(ButtonStyle.Success), 
         new ButtonBuilder().setCustomId('leaderboard_next').setEmoji('<:right:1439164491072929915>').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages)
     );
 
-    // إذا كنا في وضع الستريك، نضيف زر التبديل
     if (activeId === 'streak' || activeId === 'media_streak') {
         rowCat.components[2].setLabel(activeId === 'streak' ? 'ميديا' : 'عادي'); 
     }
@@ -254,7 +244,6 @@ module.exports = {
             client = message.client;
             user = message.author;
             
-            // تحليل الاختصارات القديمة
             const cmd = message.content.split(' ')[0].slice(1).toLowerCase(); 
             if (cmd.includes('mora') || cmd.includes('اغنى')) argType = 'mora';
             else if (cmd.includes('streak')) argType = 'streak';
@@ -268,7 +257,6 @@ module.exports = {
         const sql = client.sql;
         const reply = async (payload) => isSlash ? interaction.editReply(payload) : message.channel.send(payload);
 
-        // إنشاء اللوحة الأولية
         const data = await generateLeaderboard(sql, guild, argType, currentPage);
         currentPage = data.currentPage;
         
@@ -285,11 +273,9 @@ module.exports = {
         collector.on('collect', async i => {
             if (i.user.id !== user.id) return i.reply({ content: "هذه القائمة ليست لك.", ephemeral: true });
             
-            // منطق الأزرار
             if (i.customId === 'leaderboard_next') currentPage++;
             else if (i.customId === 'leaderboard_prev') currentPage--;
             else if (i.customId === 'leaderboard_find_me') {
-                // ( 🌟 ميزة البحث عن النفس 🌟 )
                 const findData = await generateLeaderboard(sql, guild, argType, 1, user.id);
                 if (findData.totalPages === 0) { 
                      return i.reply({ content: "لست موجوداً في هذا التصنيف!", ephemeral: true });
@@ -298,8 +284,6 @@ module.exports = {
             } 
             else if (i.customId.startsWith('top_')) {
                 const clicked = i.customId.replace('top_', '');
-                
-                // التبديل الذكي
                 if (clicked === 'level') {
                     if (argType === 'level') argType = 'weekly_xp';
                     else if (argType === 'weekly_xp') argType = 'daily_xp';
