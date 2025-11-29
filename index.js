@@ -1,5 +1,5 @@
 // ( 🌟 Added REST and Routes imports 🌟 )
-const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType, REST, Routes } = require("discord.js");
+const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType, REST, Routes, Partials } = require("discord.js");
 const SQLite = require("better-sqlite3");
 const fs = require('fs');
 const path = require('path');
@@ -39,58 +39,10 @@ try { sql.prepare("ALTER TABLE settings ADD COLUMN lastQuestPanelChannelID TEXT"
 try { sql.prepare("ALTER TABLE settings ADD COLUMN streakTimerChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN dailyTimerChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN weeklyTimerChannelID TEXT").run(); } catch (e) {}
+try { sql.prepare("CREATE TABLE IF NOT EXISTS rainbow_roles (roleID TEXT PRIMARY KEY, guildID TEXT NOT NULL)").run(); } catch (e) {}
 
 // ==================================================================
-// 2. Client Setup
-// ==================================================================
-const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildVoiceStates,
-        GatewayIntentBits.GuildMessageReactions
-    ]
-});
-
-client.commands = new Collection();
-client.cooldowns = new Collection();
-client.talkedRecently = new Map();
-const voiceXPCooldowns = new Map();
-client.recentMessageTimestamps = new Collection(); 
-const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
-const botToken = process.env.DISCORD_BOT_TOKEN;
-
-// Emojis
-client.EMOJI_MORA = '<:mora:1435647151349698621>';
-client.EMOJI_STAR = '⭐';
-client.EMOJI_WI = '<a:wi:1435572304988868769>';
-client.EMOJI_WII = '<a:wii:1435572329039007889>';
-client.EMOJI_FASTER = '<a:JaFaster:1435572430042042409>';
-client.EMOJI_PRAY = '<:0Pray:1437067281493524502>';
-client.EMOJI_COOL = '<a:NekoCool:1435572459276337245>';
-const EMOJI_XP_ANIM = '<a:levelup:1437805366048985290>';
-
-// Bind DB to Client
-client.sql = sql;
-
-// Define Statements & Default Data (Outside ClientReady to prevent crashes)
-client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
-client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP, lastFarmYield) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP, @lastFarmYield);");
-client.defaultData = { user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0 };
-
-client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
-client.setDailyStats = sql.prepare("INSERT OR REPLACE INTO user_daily_stats (id, userID, guildID, date, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @date, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
-client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
-client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
-client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
-client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @total_replies_sent, @total_mentions_received, @total_vc_minutes, @total_disboard_bumps);");
-client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
-client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
-
-// ==================================================================
-// 3. Import Handlers
+// 2. Import Handlers and Files
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
@@ -103,8 +55,55 @@ const { createRandomDropGiveaway, endGiveaway, getUserWeight } = require('./hand
 const { checkUnjailTask } = require('./handlers/report-handler.js'); 
 const { loadRoleSettings } = require('./handlers/reaction-role-handler.js');
 
+// ==================================================================
+// 3. Client Setup
+// ==================================================================
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.GuildMessageReactions
+    ],
+    partials: [Partials.Message, Partials.Channel, Partials.Reaction] 
+});
+
+client.commands = new Collection();
+client.cooldowns = new Collection();
+client.talkedRecently = new Map();
+const voiceXPCooldowns = new Map();
+client.recentMessageTimestamps = new Collection(); 
+const RECENT_MESSAGE_WINDOW = 2 * 60 * 60 * 1000; 
+const botToken = process.env.DISCORD_BOT_TOKEN;
+
+client.EMOJI_MORA = '<:mora:1435647151349698621>';
+client.EMOJI_STAR = '⭐';
+client.EMOJI_WI = '<a:wi:1435572304988868769>';
+client.EMOJI_WII = '<a:wii:1435572329039007889>';
+client.EMOJI_FASTER = '<a:JaFaster:1435572430042042409>';
+client.EMOJI_PRAY = '<:0Pray:1437067281493524502>';
+client.EMOJI_COOL = '<a:NekoCool:1435572459276337245>';
+const EMOJI_XP_ANIM = '<a:levelup:1437805366048985290>';
+
+client.sql = sql;
 client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
+
+// Prepared Statements (Loaded early)
+client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
+client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP, lastFarmYield) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP, @lastFarmYield);");
+client.defaultData = { user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0 };
+
+client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
+client.setDailyStats = sql.prepare("INSERT OR REPLACE INTO user_daily_stats (id, userID, guildID, date, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @date, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
+client.getWeeklyStats = sql.prepare("SELECT * FROM user_weekly_stats WHERE id = ?");
+client.setWeeklyStats = sql.prepare("INSERT OR REPLACE INTO user_weekly_stats (id, userID, guildID, weekStartDate, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @weekStartDate, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
+client.getTotalStats = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?");
+client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id, userID, guildID, total_messages, total_images, total_stickers, total_reactions_added, total_replies_sent, total_mentions_received, total_vc_minutes, total_disboard_bumps) VALUES (@id, @userID, @guildID, @total_messages, @total_images, @total_stickers, @total_reactions_added, @total_replies_sent, @total_mentions_received, @total_vc_minutes, @total_disboard_bumps);");
+client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
+client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
 
 // (Optional) Backup scheduler
 try { require('./handlers/backup-scheduler.js')(client, sql); } catch(e) {}
@@ -130,10 +129,9 @@ function getWeekStartDateString() {
 }
 
 // ==================================================================
-// 4. Helper Functions
+// 4. Core System Functions (Levelling, Quests)
 // ==================================================================
 
-// Check and Award Level Roles
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
     try {
         const guild = member.guild;
@@ -163,7 +161,7 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
     } catch (err) { console.error("[Level Roles] Error:", err.message); }
 }
 
-// Send Level Up Message
+// Leveling function
 client.sendLevelUpMessage = async function(messageOrInteraction, member, newLevel, oldLevel, xpData) {
     try {
         await client.checkAndAwardLevelRoles(member, newLevel);
@@ -207,7 +205,6 @@ client.sendLevelUpMessage = async function(messageOrInteraction, member, newLeve
     } catch (err) { console.error(`[LevelUp Error]: ${err.message}`); }
 }
 
-// Send Quest Notification
 client.sendQuestAnnouncement = async function(guild, member, quest, questType = 'achievement') {
     try {
         const id = `${member.id}-${guild.id}`;
@@ -370,7 +367,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
-// دالة التتبع الرئيسية
+// Increment Stats
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     if (stat === 'messages') {
         if (!client.recentMessageTimestamps.has(guildID)) client.recentMessageTimestamps.set(guildID, []);
@@ -398,7 +395,6 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         if (weeklyStats.hasOwnProperty(stat)) weeklyStats[stat] = (weeklyStats[stat] || 0) + amount;
         
         if (stat === 'disboard_bumps') totalStats.total_disboard_bumps = (totalStats.total_disboard_bumps || 0) + amount;
-        // إضافة التتبع الكلي للإحصائيات الجديدة
         if (stat === 'messages') totalStats.total_messages = (totalStats.total_messages || 0) + amount;
         if (stat === 'images') totalStats.total_images = (totalStats.total_images || 0) + amount;
         if (stat === 'replies_sent') totalStats.total_replies_sent = (totalStats.total_replies_sent || 0) + amount;
@@ -408,7 +404,6 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
         client.setDailyStats.run(dailyStats);
         client.setWeeklyStats.run(weeklyStats);
         
-        // ( 🌟 تم إصلاح خطأ الـ SQL هنا: توحيد أسماء المتغيرات 🌟 )
         client.setTotalStats.run({
             id: totalStatsId, 
             userID, 
@@ -422,7 +417,6 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
             total_vc_minutes: totalStats.total_vc_minutes, 
             total_disboard_bumps: totalStats.total_disboard_bumps
         });
-        // -----------------------------------------------------
 
         const member = client.guilds.cache.get(guildID)?.members.cache.get(userID);
         if (member) {
@@ -474,10 +468,9 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
 }
 
 // ==================================================================
-// 5. أنظمة الاقتصاد والديون والمزرعة
+// 5. Economy, Farm, and Loans
 // ==================================================================
 
-// 5.1 نظام السوق
 function updateMarketPrices() {
     try {
         const allItems = sql.prepare("SELECT * FROM market_items").all();
@@ -513,7 +506,6 @@ function updateMarketPrices() {
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
 
-// 5.2 نظام تحصيل الديون
 const checkLoanPayments = async () => {
     const now = Date.now();
     const ONE_DAY = 24 * 60 * 60 * 1000;
@@ -535,7 +527,7 @@ const checkLoanPayments = async () => {
                 remainingToPay -= takeMora;
                 logDetails.push(`💰 مورا: ${takeMora.toLocaleString()}`);
             }
-            // ... (منطق السحب الكامل موجود في النسخ السابقة وتم دمجه هنا) ...
+            // ... (Full logic from previous versions) ...
             if (remainingToPay > 0) {
                 const xpPenalty = Math.floor(remainingToPay * 2);
                 if (userData.xp >= xpPenalty) userData.xp -= xpPenalty; else { userData.xp = 0; if (userData.level > 1) userData.level -= 1; }
@@ -552,12 +544,10 @@ const checkLoanPayments = async () => {
             } else {
                 sql.prepare("UPDATE user_loans SET remainingAmount = ?, lastPaymentDate = ? WHERE userID = ? AND guildID = ?").run(loan.remainingAmount, now, loan.userID, loan.guildID);
             }
-            // إرسال التقرير...
         } catch (err) { console.error(err); }
     }
 };
 
-// 5.3 نظام حصاد المزرعة
 async function processFarmYields() {
     try {
         const now = Date.now();
@@ -584,7 +574,7 @@ async function processFarmYields() {
     } catch (err) { console.error("[Farm] Error processing yields:", err); }
 }
 
-// 5.4 ( 🌟 الدالة المضافة: فحص الرتب المؤقتة 🌟 )
+// ( 🌟 Check Temporary Roles Function 🌟 )
 async function checkTemporaryRoles(client) {
     const now = Date.now();
     const expiredRoles = sql.prepare("SELECT * FROM temporary_roles WHERE expiresAt <= ?").all(now);
@@ -608,7 +598,7 @@ async function checkTemporaryRoles(client) {
     }
 }
 
-// 5.5 ( 🌟 الدالة المضافة: الفائدة البنكية 🌟 )
+// ( 🌟 Calculate Bank Interest 🌟 )
 const calculateInterest = () => {
     const now = Date.now();
     const INTEREST_RATE = 0.0005; 
@@ -633,7 +623,7 @@ const calculateInterest = () => {
     }
 };
 
-// --- ( 🌟 دالة تحديث قنوات التوقيت (الجديدة) 🌟 ) ---
+// ( 🌟 Update Timer Channels Function 🌟 )
 async function updateTimerChannels(client) {
     const guilds = client.guilds.cache.values();
     const KSA_OFFSET = 3 * 60 * 60 * 1000; 
@@ -645,7 +635,6 @@ async function updateTimerChannels(client) {
         const now = new Date();
         const nowKSA = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + KSA_OFFSET);
 
-        // 1. حساب الوقت المتبقي لنهاية اليوم (للستريك والمهام اليومية)
         const endOfDay = new Date(nowKSA);
         endOfDay.setHours(24, 0, 0, 0);
         const msUntilDaily = endOfDay - nowKSA;
@@ -654,11 +643,9 @@ async function updateTimerChannels(client) {
         const mDaily = Math.floor((msUntilDaily % (1000 * 60 * 60)) / (1000 * 60));
         const dailyText = `${hDaily} سـ ${mDaily} د`;
 
-        // 2. حساب الوقت المتبقي لنهاية الأسبوع (الجمعة 00:00)
         const endOfWeek = new Date(nowKSA);
-        const dayOfWeek = nowKSA.getDay(); // 0 (Sun) - 6 (Sat)
+        const dayOfWeek = nowKSA.getDay(); 
         const daysUntilFriday = (5 + 7 - dayOfWeek) % 7; 
-        
         endOfWeek.setDate(nowKSA.getDate() + daysUntilFriday + (daysUntilFriday === 0 && nowKSA.getHours() >= 0 ? 7 : 0));
         endOfWeek.setHours(24, 0, 0, 0); 
         
@@ -667,7 +654,6 @@ async function updateTimerChannels(client) {
         const hWeekly = Math.floor((msUntilWeekly % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
         const weeklyText = `${dWeekly} يـ ${hWeekly} سـ`;
 
-        // 3. تحديث أسماء القنوات
         const updateChannel = async (channelId, prefix, timeText) => {
             if (!channelId) return;
             try {
@@ -678,7 +664,7 @@ async function updateTimerChannels(client) {
                         await channel.setName(newName);
                     }
                 }
-            } catch (e) { /* Ignore missing permissions */ }
+            } catch (e) { }
         };
 
         await updateChannel(settings.streakTimerChannelID, '🔥〢الـستـريـك:', dailyText);
@@ -688,15 +674,42 @@ async function updateTimerChannels(client) {
 }
 // -----------------------------------------------------
 
+// --- ( 🌈 Rainbow Roles Update Function 🌈 ) ---
+async function updateRainbowRoles(client) {
+    try {
+        const rainbowRoles = sql.prepare("SELECT roleID, guildID FROM rainbow_roles").all();
+        if (rainbowRoles.length === 0) return;
+
+        // Generate a random bright color
+        const randomColor = Math.floor(Math.random() * 16777215);
+
+        for (const record of rainbowRoles) {
+            const guild = client.guilds.cache.get(record.guildID);
+            if (!guild) continue;
+            const role = guild.roles.cache.get(record.roleID);
+            if (role) {
+                await role.edit({ color: randomColor }).catch(() => {});
+            } else {
+                sql.prepare("DELETE FROM rainbow_roles WHERE roleID = ?").run(record.roleID);
+            }
+        }
+    } catch (e) { console.error("[Rainbow Roles Error]", e); }
+}
+// -----------------------------------------------------
+
 // ==================================================================
-// 6. تشغيل البوت والمجدولات
+// 6. Start Bot
 // ==================================================================
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username}`);
     
+    // Cache Loading
+    client.antiRolesCache = new Map();
+    await loadRoleSettings(sql, client.antiRolesCache);
+
+    // Command Registration
     const rest = new REST({ version: '10' }).setToken(botToken);
     const commands = [];
-    
     const loadedCommandNames = new Set();
 
     function getFiles(dir) {
@@ -708,40 +721,25 @@ client.on(Events.ClientReady, async () => {
         }
         return commandFiles;
     }
-    
     const commandFiles = getFiles(path.join(__dirname, 'commands'));
-    
     for (const file of commandFiles) {
         try {
             const command = require(file);
-            
             const cmdName = command.data ? command.data.name : command.name;
-            
             if (cmdName) {
-                if (loadedCommandNames.has(cmdName)) {
-                    console.warn(`⚠️ تحذير: تم تجاهل الملف ${file} لأن الأمر "${cmdName}" موجود مسبقاً.`);
-                    continue;
-                }
+                if (loadedCommandNames.has(cmdName)) { console.warn(`⚠️ Ignored duplicate: ${cmdName}`); continue; }
                 loadedCommandNames.add(cmdName);
-                
                 if (command.data) commands.push(command.data.toJSON());
-                
-                if ('execute' in command) {
-                    client.commands.set(cmdName, command);
-                }
+                if ('execute' in command) client.commands.set(cmdName, command);
             }
-        } catch (err) {
-            console.error(`[Load Error] ${file}:`, err.message);
-        }
+        } catch (err) { console.error(`[Load Error] ${file}:`, err.message); }
     }
-    
     try { 
-        const CLIENT_ID = client.user.id;
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands }); 
         console.log(`✅ Successfully reloaded ${commands.length} application (/) commands.`); 
     } catch (error) { console.error("[Deploy Error]", error); }
 
-    // (تشغيل المجدولات)
+    // Start Intervals
     setInterval(calculateInterest, 60 * 60 * 1000); calculateInterest();
     setInterval(updateMarketPrices, 60 * 60 * 1000); updateMarketPrices();
     setInterval(checkLoanPayments, 60 * 60 * 1000);
@@ -749,14 +747,12 @@ client.on(Events.ClientReady, async () => {
     setInterval(() => checkDailyStreaks(client, sql), 3600000); checkDailyStreaks(client, sql);
     setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); checkDailyMediaStreaks(client, sql);
     setInterval(() => checkUnjailTask(client), 5 * 60 * 1000); checkUnjailTask(client);
-    
-    // (تشغيل فاحص الرتب المؤقتة)
     setInterval(() => checkTemporaryRoles(client), 60000); checkTemporaryRoles(client);
     
-    // ( 🌟 تشغيل مؤقت القنوات الصوتية - كل 5 دقائق 🌟 )
-    setInterval(() => updateTimerChannels(client), 5 * 60 * 1000); 
-    updateTimerChannels(client); // تشغيل أولي
-    
+    // ( 🌟 Timers 🌟 )
+    setInterval(() => updateTimerChannels(client), 5 * 60 * 1000); updateTimerChannels(client); 
+    setInterval(() => updateRainbowRoles(client), 180000); // Every 3 minutes for Rainbow Roles
+
     let lastReminderSentHour = -1; let lastUpdateSentHour = -1; let lastWarningSentHour = -1; 
     setInterval(() => { 
         const KSA_TIMEZONE = 'Asia/Riyadh'; 
@@ -782,7 +778,8 @@ client.on(Events.ClientReady, async () => {
     sendDailyMediaUpdate(client, sql);
 }); 
 
-require('./interaction-handler.js')(client, sql);
+// ( 🌟 Pass Cache to Interaction Handler 🌟 )
+require('./interaction-handler.js')(client, sql, client.antiRolesCache);
 
 const eventsPath = path.join(__dirname, 'events');
 const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
