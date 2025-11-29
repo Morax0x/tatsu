@@ -1,6 +1,13 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, SlashCommandBuilder } = require("discord.js");
-const weaponsConfig = require('../../json/weapons-config.json'); 
-const { getUserRace, getWeaponData, BASE_HP, HP_PER_LEVEL } = require('../../handlers/pvp-core.js'); 
+const path = require('path'); // ( 🌟 إضافة مكتبة path 🌟 )
+
+// ( 🌟 التصحيح: استخدام المسار الديناميكي للوصول للملف 🌟 )
+const weaponsConfigPath = path.join(__dirname, '..', 'json', 'weapons-config.json');
+const weaponsConfig = require(weaponsConfigPath); 
+
+const pvpCorePath = path.join(__dirname, '..', 'handlers', 'pvp-core.js');
+const { getUserRace, getWeaponData, BASE_HP, HP_PER_LEVEL } = require(pvpCorePath); 
+// ----------------------------------------------------------
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
@@ -190,7 +197,7 @@ function createButtons(activeId, page, totalPages) {
 
     const rowNav = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('leaderboard_prev').setEmoji('<:left:1439164494759723029>').setStyle(ButtonStyle.Secondary).setDisabled(page === 1),
-        new ButtonBuilder().setCustomId('leaderboard_find_me').setEmoji('📍').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('leaderboard_find_me').setEmoji('📍').setStyle(ButtonStyle.Success), 
         new ButtonBuilder().setCustomId('leaderboard_next').setEmoji('<:right:1439164491072929915>').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages)
     );
 
@@ -214,8 +221,7 @@ module.exports = {
         .addIntegerOption(opt => opt.setName('صفحة').setDescription('رقم الصفحة')),
 
     name: "top",
-    // ( 🌟 هنا نضيف t و lb وباقي الاختصارات 🌟 )
-    aliases: ["توب", "المتصدرين", "topmora", "topstreak", "اغنى", "اقوى", "topweek", "توب-الاسبوع", "t", "lb"],
+    aliases: ["توب", "المتصدرين", "topmora", "topstreak", "اغنى", "اقوى", "topweek", "توب-الاسبوع"],
     category: "Leveling",
     cooldown: 10,
     description: "يعرض لوحات الصدارة.",
@@ -240,34 +246,14 @@ module.exports = {
             client = message.client;
             user = message.author;
             
-            // --- ( 🌟 المنطق الذكي لتحليل الاختصارات 🌟 ) ---
-            // 1. التحقق من الكلمة الأولى (مثل topmora)
-            let cmd = message.content.split(' ')[0].toLowerCase(); 
-            // إزالة البريفكس إذا وجد
-            if (cmd.startsWith(args.prefix)) cmd = cmd.slice(args.prefix.length);
-
+            const cmd = message.content.split(' ')[0].slice(1).toLowerCase(); 
             if (cmd.includes('mora') || cmd.includes('اغنى')) argType = 'mora';
             else if (cmd.includes('streak')) argType = 'streak';
             else if (cmd.includes('week') || cmd.includes('اسبوع')) argType = 'weekly_xp';
             else if (cmd.includes('daily') || cmd.includes('يومي')) argType = 'daily_xp';
             else if (cmd.includes('اقوى')) argType = 'strongest';
-            else if (cmd.includes('achievements') || cmd.includes('انجازات')) argType = 'achievements';
-
-            // 2. التحقق من الكلمة الثانية (Arguments) إذا كانت الكلمة الأولى عامة (مثل t أو top)
-            if (args.length > 0) {
-                const firstArg = args[0].toLowerCase();
-                // التحقق من الأنواع
-                if (['week', 'weekly', 'w', 'اسبوع', 'اسبوعي'].includes(firstArg)) argType = 'weekly_xp';
-                else if (['day', 'daily', 'd', 'يومي', 'يوم'].includes(firstArg)) argType = 'daily_xp';
-                else if (['mora', 'money', 'coins', 'مورا', 'فلوس'].includes(firstArg)) argType = 'mora';
-                else if (['streak', 'st', 'ستريك'].includes(firstArg)) argType = 'streak';
-                else if (['achievements', 'ach', 'انجازات'].includes(firstArg)) argType = 'achievements';
-                
-                // التحقق من رقم الصفحة
-                const potentialPage = parseInt(firstArg);
-                if (!isNaN(potentialPage)) currentPage = potentialPage;
-                else if (args[1] && !isNaN(parseInt(args[1]))) currentPage = parseInt(args[1]);
-            }
+            
+            if (args && !isNaN(args[0])) currentPage = parseInt(args[0]);
         }
 
         const sql = client.sql;
