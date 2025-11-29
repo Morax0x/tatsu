@@ -42,7 +42,8 @@ async function updateBuilderEmbed(interaction, data) {
 }
 
 
-module.exports = (client, sql) => {
+// ( 🌟 تم إضافة antiRolesCache هنا 🌟 )
+module.exports = (client, sql, antiRolesCache) => {
 
     client.on(Events.InteractionCreate, async i => {
 
@@ -293,7 +294,8 @@ module.exports = (client, sql) => {
             // --- 6. القوائم المنسدلة ---
             } else if (i.isStringSelectMenu()) {
                 if (i.customId.startsWith('rr_')) { 
-                    await handleReactionRole(i, client, sql, client.antiRolesCache);
+                    // ( 🌟 تم تمرير antiRolesCache هنا 🌟 )
+                    await handleReactionRole(i, client, sql, antiRolesCache); 
                 } else if (i.customId === 'g_reroll_select') {
                     await handleReroll(i, client, sql);
                 } else if (i.customId.startsWith('quest_panel_menu')) {
