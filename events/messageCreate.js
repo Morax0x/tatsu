@@ -63,31 +63,31 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         
         // ============================================================
-        // 🌟 2. معالج الاختصارات (المُحسّن) 🌟
+        // 🌟 2. معالج الاختصارات (المُحسّن للأسماء المستعارة) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
-            const shortcutWord = argsRaw[0].toLowerCase().trim(); // تنظيف الكلمة
+            const shortcutWord = argsRaw[0].toLowerCase().trim();
 
             // 1. البحث في القناة الحالية
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            // 2. البحث العام (في السيرفر كله) إذا لم نجد
+            // 2. البحث العام (في السيرفر كله)
             if (!shortcut) {
                 shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
                     .get(message.guild.id, shortcutWord);
             }
             
             if (shortcut) {
-                console.log(`[Shortcut] Found shortcut: "${shortcutWord}" -> Command: "${shortcut.commandName}"`);
+                console.log(`[Shortcut Debug] Found shortcut '${shortcutWord}' pointing to '${shortcut.commandName}'`);
 
-                // 3. البحث عن الأمر (الاسم الأصلي أو المستعار)
+                // 🌟 التعديل الهام هنا: البحث عن الاسم الأصلي OR الاسم المستعار (Aliases) 🌟
                 const cmd = client.commands.get(shortcut.commandName) || 
                             client.commands.find(c => c.aliases && c.aliases.includes(shortcut.commandName));
 
                 if (cmd) {
-                    console.log(`[Shortcut] Executing command: ${cmd.name}`);
+                    console.log(`[Shortcut Debug] Executing command: ${cmd.name}`);
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
                         if (cooldownMsg) {
@@ -95,13 +95,12 @@ module.exports = {
                              return;
                         }
                         try {
-                            // تنفيذ الأمر
                             await cmd.execute(message, argsRaw.slice(1)); 
                         } catch (e) { console.error(e); }
                     }
                     return; // توقف هنا، تم التنفيذ
                 } else {
-                    console.log(`[Shortcut Error] Command "${shortcut.commandName}" not found in bot!`);
+                    console.log(`[Shortcut Error] Command '${shortcut.commandName}' not found in bot files!`);
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
