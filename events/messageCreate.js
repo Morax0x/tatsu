@@ -5,17 +5,6 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// --- ( 🌟 خريطة التحويل اليدوية للأوامر 🌟 ) ---
-// هنا نربط الأسماء المستعارة بالأسماء الحقيقية للملفات
-const COMMAND_ALIASES_MAP = {
-    'balance': 'mora',  // إذا طلب balance شغل mora
-    'credits': 'mora',
-    'bal': 'mora',
-    'رصيد': 'mora',
-    'مورا': 'mora',
-    // أضف أي تحويلات أخرى هنا إذا احتجت
-};
-
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
     const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
@@ -74,12 +63,13 @@ module.exports = {
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         
         // ============================================================
-        // 🌟 2. معالج الاختصارات (مع التحويل اليدوي) 🌟
+        // 🌟 2. معالج الاختصارات (بحث ديناميكي ذكي) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
+            // 1. البحث عن الاختصار في الداتابيس
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
@@ -89,21 +79,16 @@ module.exports = {
             }
             
             if (shortcut) {
-                let targetCommandName = shortcut.commandName;
+                const targetName = shortcut.commandName.toLowerCase();
 
-                // ( 🌟 هنا التعديل: التحقق من خريطة التحويل 🌟 )
-                if (COMMAND_ALIASES_MAP[targetCommandName]) {
-                    console.log(`[Shortcut Fix] Mapping '${targetCommandName}' to '${COMMAND_ALIASES_MAP[targetCommandName]}'`);
-                    targetCommandName = COMMAND_ALIASES_MAP[targetCommandName];
-                }
-
-                console.log(`[Shortcut Debug] Shortcut '${shortcutWord}' -> Target: '${targetCommandName}'`);
-
-                const cmd = client.commands.get(targetCommandName) || 
-                            client.commands.find(c => c.aliases && c.aliases.includes(targetCommandName));
+                // 2. البحث الذكي عن الأمر (الاسم الأصلي أو المستعار)
+                // هذه الدالة تبحث في كل الأوامر المحملة
+                const cmd = client.commands.find(c => 
+                    c.name === targetName || 
+                    (c.aliases && c.aliases.includes(targetName))
+                );
 
                 if (cmd) {
-                    console.log(`[Shortcut Debug] Executing command: ${cmd.name}`);
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
                         if (cooldownMsg) {
@@ -114,9 +99,7 @@ module.exports = {
                             await cmd.execute(message, argsRaw.slice(1)); 
                         } catch (e) { console.error(e); }
                     }
-                    return; 
-                } else {
-                    console.log(`[Shortcut Error] Command '${targetCommandName}' still not found! Check your filenames.`);
+                    return; // (توقف هنا، تم التنفيذ)
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
@@ -128,7 +111,10 @@ module.exports = {
         if (message.content.startsWith(Prefix)) {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
+            
+            // نفس البحث الذكي للأوامر العادية
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+            
             if (command) {
                 let isAllowed = false;
                 if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
