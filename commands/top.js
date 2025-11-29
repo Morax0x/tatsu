@@ -1,6 +1,10 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, Colors, SlashCommandBuilder } = require("discord.js");
-const weaponsConfig = require('../../json/weapons-config.json'); // (تأكد من المسار)
-const { getUserRace, getWeaponData, BASE_HP, HP_PER_LEVEL } = require('../../handlers/pvp-core.js'); // (تأكد من المسار)
+
+// --- ( 🌟 تم تصحيح المسارات لتناسب موقع الملف الحالي 🌟 ) ---
+// (نقطتين فقط ../ لأن الملف موجود في commands مباشرة)
+const weaponsConfig = require('../json/weapons-config.json'); 
+const { getUserRace, getWeaponData, BASE_HP, HP_PER_LEVEL } = require('../handlers/pvp-core.js'); 
+// ----------------------------------------------------------
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
 const EMOJI_MEDIA_STREAK = '<a:Streak:1438932297519730808>';
@@ -13,7 +17,7 @@ const IMAGES = {
     media_streak: 'https://i.postimg.cc/NfLYXwD5/123.jpg',
     strongest: 'https://i.postimg.cc/pL7PLmf0/power.webp',
     weekly_xp: 'https://i.postimg.cc/9FWddtV8/123.png',
-    daily_xp: 'https://i.postimg.cc/9FWddtV8/123.png', // صورة اليومي
+    daily_xp: 'https://i.postimg.cc/9FWddtV8/123.png',
     achievements: 'https://i.postimg.cc/bwxwsnvs/qaʿt-alanjazat.png'
 };
 
@@ -70,7 +74,6 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
     let description = "";
     let allUsers = [];
     let totalPages = 0;
-    let userRankIndex = -1;
 
     try {
         // 1. جلب البيانات حسب النوع
@@ -139,7 +142,6 @@ async function generateLeaderboard(sql, guild, type, page, targetUserId = null) 
             const index = allUsers.findIndex(u => (u.user || u.userID) === targetUserId);
             if (index !== -1) {
                 page = Math.ceil((index + 1) / ROWS_PER_PAGE);
-                userRankIndex = index; // لحفظ مكان المستخدم لتمييزه
             }
         }
 
@@ -211,12 +213,6 @@ function createButtons(activeId, page, totalPages) {
         rowCat.components[2].setLabel(activeId === 'streak' ? 'ميديا' : 'عادي'); 
     }
     
-    // إذا كنا في وضع الـ XP، نضيف زر التبديل (أسبوعي/يومي)
-    if (activeId === 'weekly_xp' || activeId === 'daily_xp' || activeId === 'level') {
-        // يمكن إضافة زر تبديل هنا، أو جعل "level" هو الزر الرئيسي الذي يبدل بينهم
-        // للتبسيط: الزر الأول (level) سيبدل بين (Level -> Weekly -> Daily -> Level)
-    }
-
     return [rowCat, rowNav];
 }
 
@@ -295,11 +291,10 @@ module.exports = {
             else if (i.customId === 'leaderboard_find_me') {
                 // ( 🌟 ميزة البحث عن النفس 🌟 )
                 const findData = await generateLeaderboard(sql, guild, argType, 1, user.id);
-                if (findData.totalPages === 0) { // لم يتم العثور عليه
+                if (findData.totalPages === 0) { 
                      return i.reply({ content: "لست موجوداً في هذا التصنيف!", ephemeral: true });
                 }
-                currentPage = findData.currentPage; // انتقل للصفحة التي فيها العضو
-                // سيتم التحديث بالأسفل
+                currentPage = findData.currentPage; 
             } 
             else if (i.customId.startsWith('top_')) {
                 const clicked = i.customId.replace('top_', '');
@@ -322,10 +317,10 @@ module.exports = {
                 embeds: [newData.embed], 
                 components: createButtons(argType, newData.currentPage, newData.totalPages) 
             });
-            currentPage = newData.currentPage; // تحديث الصفحة الحالية في المتغير
+            currentPage = newData.currentPage; 
         });
 
         collector.on('end', () => msg.edit({ components: [] }).catch(() => {}));
     },
-    generateLeaderboard // تصدير للدالة في حال الاحتياج
+    generateLeaderboard 
 };
