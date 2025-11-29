@@ -31,7 +31,7 @@ module.exports = {
             });
 
             const dailyChannel = await guild.channels.create({
-                name: '🏆〢مهام اليومية: جارِ الحساب...',
+                name: '🏆〢مهام يومية: جارِ الحساب...',
                 type: ChannelType.GuildVoice,
                 parent: category.id,
                 permissionOverwrites: [{ id: guild.id, deny: [PermissionsBitField.Flags.Connect] }],
