@@ -38,7 +38,6 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        // 1. كشف البومب
         if (message.author.id === DISBOARD_BOT_ID) {
             let bumperID = null;
             if (message.interaction && message.interaction.commandName === 'bump') {
@@ -63,27 +62,32 @@ module.exports = {
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         
-        // --- ( 🌟 2. معالج الاختصارات الذكي (بحث شامل) 🌟 ) ---
+        // ============================================================
+        // 🌟 2. معالج الاختصارات (المُحسّن) 🌟
+        // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
-            const shortcutWord = argsRaw[0].toLowerCase(); 
+            const shortcutWord = argsRaw[0].toLowerCase().trim(); // تنظيف الكلمة
 
-            // البحث في الداتابيس
+            // 1. البحث في القناة الحالية
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
+            // 2. البحث العام (في السيرفر كله) إذا لم نجد
             if (!shortcut) {
                 shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
                     .get(message.guild.id, shortcutWord);
             }
             
             if (shortcut) {
-                // ( 🌟 التعديل الجوهري هنا 🌟 )
-                // البحث عن الأمر بالاسم الأصلي OR البحث عنه في قائمة Aliases
+                console.log(`[Shortcut] Found shortcut: "${shortcutWord}" -> Command: "${shortcut.commandName}"`);
+
+                // 3. البحث عن الأمر (الاسم الأصلي أو المستعار)
                 const cmd = client.commands.get(shortcut.commandName) || 
                             client.commands.find(c => c.aliases && c.aliases.includes(shortcut.commandName));
 
                 if (cmd) {
+                    console.log(`[Shortcut] Executing command: ${cmd.name}`);
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
                         if (cooldownMsg) {
@@ -91,16 +95,18 @@ module.exports = {
                              return;
                         }
                         try {
+                            // تنفيذ الأمر
                             await cmd.execute(message, argsRaw.slice(1)); 
                         } catch (e) { console.error(e); }
                     }
-                    return; // توقف هنا، تم تنفيذ الاختصار
+                    return; // توقف هنا، تم التنفيذ
+                } else {
+                    console.log(`[Shortcut Error] Command "${shortcut.commandName}" not found in bot!`);
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
-        // ------------------------------------------------------------
+        // ============================================================
 
-        // 3. معالج البريفكس
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -130,7 +136,6 @@ module.exports = {
             }
         }
 
-        // 4. البلاغات
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
@@ -145,7 +150,6 @@ module.exports = {
             return; 
         }
 
-        // 5. الكازينو
         if (settings && settings.casinoChannelID && message.channel.id === settings.casinoChannelID) {
             const args = message.content.trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
@@ -157,13 +161,11 @@ module.exports = {
             return;
         }
 
-        // 6. البلاك ليست
         try {
             let blacklist = sql.prepare(`SELECT id FROM blacklistTable WHERE id = ?`);
             if (blacklist.get(`${message.guild.id}-${message.author.id}`) || blacklist.get(`${message.guild.id}-${message.channel.id}`)) return;
         } catch (e) {}
 
-        // 7. تتبع المهام والإحصائيات
         try {
             const userID = message.author.id;
             const guildID = message.guild.id;
@@ -226,7 +228,6 @@ module.exports = {
 
         } catch (err) { console.error("[Stats Tracker Error]:", err); }
 
-        // 8. نظام XP والستريك
         await handleStreakMessage(message);
         
         let level = client.getLevel.get(message.author.id, message.guild.id);
