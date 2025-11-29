@@ -38,7 +38,7 @@ module.exports = {
         const client = message.client;
         const sql = client.sql;
 
-        // 1. كشف البومب (الأولوية القصوى للبوتات)
+        // 1. كشف البومب
         if (message.author.id === DISBOARD_BOT_ID) {
             let bumperID = null;
             if (message.interaction && message.interaction.commandName === 'bump') {
@@ -57,20 +57,21 @@ module.exports = {
             return; 
         }
 
-        // تجاهل البوتات الأخرى
         if (message.author.bot) return;
         if (!message.guild) return; 
 
-        // تحميل الإعدادات
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
         let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         
-        // --- ( 🌟 2. معالج الاختصارات - الأولوية قبل البريفكس 🌟 ) ---
+        // 2. معالج الاختصارات (محسن للعربية)
         try {
-            const argsRaw = message.content.trim().split(/ +/);
-            const shortcutWord = argsRaw[0].toLowerCase(); // الكلمة الأولى
+            // تنظيف الرسالة من الرموز المخفية التي تأتي مع العربي أحياناً
+            // (Zero-width space, Left-to-right mark, etc.)
+            const cleanContent = message.content.replace(/[\u200B-\u200D\uFEFF]/g, '');
             
-            // البحث عن اختصار مطابق في قاعدة البيانات لهذه القناة
+            const argsRaw = cleanContent.trim().split(/ +/);
+            const shortcutWord = argsRaw[0].toLowerCase(); 
+            
             const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?").get(message.guild.id, message.channel.id, shortcutWord);
             
             if (shortcut) {
@@ -83,17 +84,15 @@ module.exports = {
                              return;
                         }
                         try {
-                            // تنفيذ الأمر وتمرير باقي الكلام كـ args
                             await cmd.execute(message, argsRaw.slice(1)); 
                         } catch (e) { console.error(e); }
                     }
-                    return; // (توقف هنا ولا تكمل لباقي الكود)
+                    return; 
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
-        // ------------------------------------------------------------
 
-        // 3. معالج البريفكس العادي
+        // 3. البريفكس
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -223,7 +222,7 @@ module.exports = {
         await handleStreakMessage(message);
         
         let level = client.getLevel.get(message.author.id, message.guild.id);
-        if (!level) level = { ...(client.defaultData || {}), xp: 0, level: 1, totalXP: 0, user: message.author.id, guild: message.guild.id };
+        if (!level) level = { ...(client.defaultData || {}), ...completeDefaultLevelData, user: message.author.id, guild: message.guild.id };
         
         let getXpfromDB = settings?.customXP || 25;
         let getCooldownfromDB = settings?.customCooldown || 60000;
