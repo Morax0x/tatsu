@@ -1,5 +1,8 @@
 const { SlashCommandBuilder, PermissionsBitField, EmbedBuilder, Colors } = require("discord.js");
 
+// (كائن الإحصائيات الافتراضية لتجنب الأخطاء)
+const autoResponderCooldowns = new Map();
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('رد-تلقائي')
@@ -40,13 +43,15 @@ module.exports = {
 
     async execute(interaction) {
         if (!interaction.isChatInputCommand) return;
-        await interaction.deferReply({ ephemeral: true });
-
+        
         const sql = interaction.client.sql;
         const guildID = interaction.guild.id;
         const sub = interaction.options.getSubcommand();
 
         try {
+             // ( 🌟 نجعل الـ defer خارج الـ try block الرئيسية )
+            await interaction.deferReply({ ephemeral: true });
+
             if (sub === 'اضافة') {
                 const trigger = interaction.options.getString('الكلمة').toLowerCase();
                 const response = interaction.options.getString('الرد');
@@ -54,14 +59,12 @@ module.exports = {
                 const matchType = interaction.options.getString('المطابقة') || 'exact';
                 const cooldown = interaction.options.getInteger('كولداون') || 0;
 
-                // التحقق من التكرار
                 const exists = sql.prepare("SELECT id FROM auto_responses WHERE guildID = ? AND trigger = ?").get(guildID, trigger);
                 if (exists) return interaction.editReply("❌ هذا الرد موجود مسبقاً. قم بحذفه أولاً للتعديل.");
 
-                // تجهيز البيانات
                 const responseData = {
-                    text: response.split('|').map(t => t.trim()), // مصفوفة نصوص
-                    images: images.split(/\s+/).filter(url => url.startsWith('http')) // مصفوفة صور
+                    text: response.split('|').map(t => t.trim()), 
+                    images: images.split(/\s+/).filter(url => url.startsWith('http'))
                 };
 
                 sql.prepare(`
@@ -117,7 +120,6 @@ module.exports = {
 
                 if (action === 'allow') {
                     if (!allowed.includes(channel.id)) allowed.push(channel.id);
-                    // إزالة من القائمة الأخرى إذا وجد
                     ignored = ignored.filter(id => id !== channel.id);
                 } else {
                     if (!ignored.includes(channel.id)) ignored.push(channel.id);
@@ -130,9 +132,14 @@ module.exports = {
                 return interaction.editReply(`✅ تم تحديث إعدادات القناة للرد **"${trigger}"**.`);
             }
 
-        } catch (err) {
-            console.error(err);
-            return interaction.editReply("❌ حدث خطأ أثناء تنفيذ الأمر.");
+        } catch (error) {
+            console.error("[Auto Responder Execute Error]", error);
+            // (إغلاق التفاعل برسالة خطأ في حال الكراش)
+            if (interaction.deferred || interaction.replied) {
+                return interaction.editReply({ content: "❌ حدث خطأ داخلي أثناء تنفيذ الأمر.", ephemeral: true });
+            } else {
+                return interaction.reply({ content: "❌ حدث خطأ داخلي أثناء تنفيذ الأمر.", ephemeral: true });
+            }
         }
     }
 };
