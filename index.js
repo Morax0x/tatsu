@@ -5,10 +5,30 @@ const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. Database Setup
+// 1. إعداد قاعدة البيانات (مع التصليح الذاتي)
 // ==================================================================
-const sql = new SQLite('./mainDB.sqlite');
-sql.pragma('journal_mode = WAL');
+const dbPath = './mainDB.sqlite';
+let sql;
+
+try {
+    sql = new SQLite(dbPath);
+    sql.pragma('journal_mode = WAL');
+} catch (err) {
+    // ( 🌟 هنا الحل: إذا الملف خربان، نحذفه ونبدا من جديد 🌟 )
+    if (err.code === 'SQLITE_NOTADB') {
+        console.error("❌ ملف قاعدة البيانات تالف! جاري حذفه وإنشاء جديد...");
+        try { fs.unlinkSync(dbPath); } catch(e) {}
+        try { if (fs.existsSync(dbPath + '-wal')) fs.unlinkSync(dbPath + '-wal'); } catch(e) {}
+        try { if (fs.existsSync(dbPath + '-shm')) fs.unlinkSync(dbPath + '-shm'); } catch(e) {}
+        
+        // محاولة ثانية بملف نظيف
+        sql = new SQLite(dbPath);
+        sql.pragma('journal_mode = WAL');
+        console.log("✅ تم إنشاء قاعدة بيانات جديدة نظيفة.");
+    } else {
+        throw err; // لو خطأ ثاني، وقف البرنامج
+    }
+}
 
 try {
     const { setupDatabase } = require("./database-setup.js");
@@ -475,34 +495,22 @@ function updateMarketPrices() {
     try {
         const allItems = sql.prepare("SELECT * FROM market_items").all();
         if (allItems.length === 0) return;
-
         const updateStmt = sql.prepare(`UPDATE market_items SET currentPrice = ?, lastChangePercent = ?, lastChange = ? WHERE id = ?`);
-
         const transaction = sql.transaction(() => {
             for (const item of allItems) {
                 const oldPrice = item.currentPrice;
-                let changePercent = (Math.random() * 0.30) - 0.15; // -15% to +15%
-
-                if (oldPrice > 1000) {
-                    if (changePercent > 0) {
-                        changePercent = changePercent / 5; 
-                    }
-                }
-
+                let changePercent = (Math.random() * 0.30) - 0.15; 
+                if (oldPrice > 1000 && changePercent > 0) changePercent /= 5; 
                 let newPrice = Math.floor(oldPrice * (1 + changePercent));
                 if (newPrice > 10000) newPrice = 10000; 
                 if (newPrice < 50) newPrice = 50;        
-
                 const changeAmount = newPrice - oldPrice;
                 const finalPercent = ((changeAmount / oldPrice) * 100).toFixed(2);
-
                 updateStmt.run(newPrice, finalPercent, changeAmount, item.id);
             }
         });
-        
         transaction();
         console.log(`[Market] Prices updated.`);
-        
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
 
@@ -519,28 +527,22 @@ const checkLoanPayments = async () => {
             if (!userData) continue;
             const paymentAmount = Math.min(loan.dailyPayment, loan.remainingAmount);
             let remainingToPay = paymentAmount;
-            let logDetails = [];
             
             if (userData.mora > 0) {
                 const takeMora = Math.min(userData.mora, remainingToPay);
                 userData.mora -= takeMora;
                 remainingToPay -= takeMora;
-                logDetails.push(`💰 مورا: ${takeMora.toLocaleString()}`);
             }
-            // ... (Full logic from previous versions) ...
             if (remainingToPay > 0) {
                 const xpPenalty = Math.floor(remainingToPay * 2);
                 if (userData.xp >= xpPenalty) userData.xp -= xpPenalty; else { userData.xp = 0; if (userData.level > 1) userData.level -= 1; }
-                logDetails.push(`✨ خبرة (عقوبة): خصم ${xpPenalty} XP`);
                 remainingToPay = 0; 
             }
             client.setLevel.run(userData);
             loan.remainingAmount -= paymentAmount;
             loan.lastPaymentDate = now;
             if (loan.remainingAmount <= 0) {
-                loan.remainingAmount = 0;
                 sql.prepare("DELETE FROM user_loans WHERE userID = ? AND guildID = ?").run(loan.userID, loan.guildID);
-                logDetails.push("🎉 **تم سداد القرض بالكامل!**");
             } else {
                 sql.prepare("UPDATE user_loans SET remainingAmount = ?, lastPaymentDate = ? WHERE userID = ? AND guildID = ?").run(loan.remainingAmount, now, loan.userID, loan.guildID);
             }
@@ -574,7 +576,6 @@ async function processFarmYields() {
     } catch (err) { console.error("[Farm] Error processing yields:", err); }
 }
 
-// ( 🌟 Check Temporary Roles Function 🌟 )
 async function checkTemporaryRoles(client) {
     const now = Date.now();
     const expiredRoles = sql.prepare("SELECT * FROM temporary_roles WHERE expiresAt <= ?").all(now);
@@ -588,17 +589,14 @@ async function checkTemporaryRoles(client) {
             const member = await guild.members.fetch(record.userID).catch(() => null);
             const role = guild.roles.cache.get(record.roleID);
             if (member && role) {
-                await member.roles.remove(role, "انتهاء مدة الرتبة المؤقتة (متجر/جائزة)");
+                await member.roles.remove(role, "انتهاء مدة الرتبة المؤقتة");
                 console.log(`[Temp Roles] Removed role ${role.name} from ${member.user.tag}`);
             }
-        } catch (e) {
-            console.error(`[Temp Roles Error]: ${e.message}`);
-        }
+        } catch (e) { console.error(`[Temp Roles Error]: ${e.message}`); }
         sql.prepare("DELETE FROM temporary_roles WHERE userID = ? AND guildID = ? AND roleID = ?").run(record.userID, record.guildID, record.roleID);
     }
 }
 
-// ( 🌟 Calculate Bank Interest 🌟 )
 const calculateInterest = () => {
     const now = Date.now();
     const INTEREST_RATE = 0.0005; 
@@ -623,22 +621,17 @@ const calculateInterest = () => {
     }
 };
 
-// ( 🌟 Update Timer Channels Function 🌟 )
 async function updateTimerChannels(client) {
     const guilds = client.guilds.cache.values();
     const KSA_OFFSET = 3 * 60 * 60 * 1000; 
-
     for (const guild of guilds) {
         const settings = sql.prepare("SELECT streakTimerChannelID, dailyTimerChannelID, weeklyTimerChannelID FROM settings WHERE guild = ?").get(guild.id);
         if (!settings) continue;
-
         const now = new Date();
         const nowKSA = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + KSA_OFFSET);
 
-        const endOfDay = new Date(nowKSA);
-        endOfDay.setHours(24, 0, 0, 0);
+        const endOfDay = new Date(nowKSA); endOfDay.setHours(24, 0, 0, 0);
         const msUntilDaily = endOfDay - nowKSA;
-        
         const hDaily = Math.floor(msUntilDaily / (1000 * 60 * 60));
         const mDaily = Math.floor((msUntilDaily % (1000 * 60 * 60)) / (1000 * 60));
         const dailyText = `${hDaily} سـ ${mDaily} د`;
@@ -648,7 +641,6 @@ async function updateTimerChannels(client) {
         const daysUntilFriday = (5 + 7 - dayOfWeek) % 7; 
         endOfWeek.setDate(nowKSA.getDate() + daysUntilFriday + (daysUntilFriday === 0 && nowKSA.getHours() >= 0 ? 7 : 0));
         endOfWeek.setHours(24, 0, 0, 0); 
-        
         const msUntilWeekly = endOfWeek - nowKSA;
         const dWeekly = Math.floor(msUntilWeekly / (1000 * 60 * 60 * 24));
         const hWeekly = Math.floor((msUntilWeekly % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
@@ -660,54 +652,40 @@ async function updateTimerChannels(client) {
                 const channel = guild.channels.cache.get(channelId);
                 if (channel) {
                     const newName = `${prefix} ${timeText}`;
-                    if (channel.name !== newName) {
-                        await channel.setName(newName);
-                    }
+                    if (channel.name !== newName) await channel.setName(newName);
                 }
             } catch (e) { }
         };
-
         await updateChannel(settings.streakTimerChannelID, '🔥〢الـستـريـك:', dailyText);
         await updateChannel(settings.dailyTimerChannelID, '🏆〢مهام اليومية:', dailyText);
         await updateChannel(settings.weeklyTimerChannelID, '🔮〢مهام اسبوعية:', weeklyText);
     }
 }
-// -----------------------------------------------------
 
-// --- ( 🌈 Rainbow Roles Update Function 🌈 ) ---
 async function updateRainbowRoles(client) {
     try {
         const rainbowRoles = sql.prepare("SELECT roleID, guildID FROM rainbow_roles").all();
         if (rainbowRoles.length === 0) return;
-
-        // Generate a random bright color
         const randomColor = Math.floor(Math.random() * 16777215);
-
         for (const record of rainbowRoles) {
             const guild = client.guilds.cache.get(record.guildID);
             if (!guild) continue;
             const role = guild.roles.cache.get(record.roleID);
-            if (role) {
-                await role.edit({ color: randomColor }).catch(() => {});
-            } else {
-                sql.prepare("DELETE FROM rainbow_roles WHERE roleID = ?").run(record.roleID);
-            }
+            if (role) await role.edit({ color: randomColor }).catch(() => {});
+            else sql.prepare("DELETE FROM rainbow_roles WHERE roleID = ?").run(record.roleID);
         }
     } catch (e) { console.error("[Rainbow Roles Error]", e); }
 }
-// -----------------------------------------------------
 
 // ==================================================================
-// 6. Start Bot
+// 6. تشغيل البوت
 // ==================================================================
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username}`);
     
-    // Cache Loading
     client.antiRolesCache = new Map();
     await loadRoleSettings(sql, client.antiRolesCache);
 
-    // Command Registration
     const rest = new REST({ version: '10' }).setToken(botToken);
     const commands = [];
     const loadedCommandNames = new Set();
@@ -735,11 +713,10 @@ client.on(Events.ClientReady, async () => {
         } catch (err) { console.error(`[Load Error] ${file}:`, err.message); }
     }
     try { 
-        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands }); 
-        console.log(`✅ Successfully reloaded ${commands.length} application (/) commands.`); 
+        await rest.put(Routes.applicationCommands(client.user.id), { body: commands }); 
+        console.log(`✅ Reloaded ${commands.length} commands.`); 
     } catch (error) { console.error("[Deploy Error]", error); }
 
-    // Start Intervals
     setInterval(calculateInterest, 60 * 60 * 1000); calculateInterest();
     setInterval(updateMarketPrices, 60 * 60 * 1000); updateMarketPrices();
     setInterval(checkLoanPayments, 60 * 60 * 1000);
@@ -748,10 +725,8 @@ client.on(Events.ClientReady, async () => {
     setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); checkDailyMediaStreaks(client, sql);
     setInterval(() => checkUnjailTask(client), 5 * 60 * 1000); checkUnjailTask(client);
     setInterval(() => checkTemporaryRoles(client), 60000); checkTemporaryRoles(client);
-    
-    // ( 🌟 Timers 🌟 )
     setInterval(() => updateTimerChannels(client), 5 * 60 * 1000); updateTimerChannels(client); 
-    setInterval(() => updateRainbowRoles(client), 180000); // Every 3 minutes for Rainbow Roles
+    setInterval(() => updateRainbowRoles(client), 180000); 
 
     let lastReminderSentHour = -1; let lastUpdateSentHour = -1; let lastWarningSentHour = -1; 
     setInterval(() => { 
@@ -778,7 +753,6 @@ client.on(Events.ClientReady, async () => {
     sendDailyMediaUpdate(client, sql);
 }); 
 
-// ( 🌟 Pass Cache to Interaction Handler 🌟 )
 require('./interaction-handler.js')(client, sql, client.antiRolesCache);
 
 const eventsPath = path.join(__dirname, 'events');
