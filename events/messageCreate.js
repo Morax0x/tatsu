@@ -10,6 +10,30 @@ const autoResponderCooldowns = new Collection();
 // كولداون سقاية الشجرة
 const treeCooldowns = new Set();
 
+// القاموس الشامل (للترجمة من اختصار لاسم الملف)
+const COMMAND_ALIASES_MAP = {
+    'balance': 'mora', 'bal': 'mora', 'b': 'mora', 'credits': 'mora', 'c': 'mora', 
+    'رصيد': 'mora', 'فلوس': 'mora', 'مورا': 'mora', '0': 'mora',
+
+    'rank': 'rank', 'r': 'rank', 'level': 'rank', 'lvl': 'rank', 'l': 'rank',
+    'رانك': 'rank', 'لفل': 'rank', 'مستوى': 'rank', 'خبرة': 'rank',
+
+    'top': 'top', 't': 'top', 'leaderboard': 'top', 'lb': 'top',
+    'توب': 'top', 'الاوائل': 'top', 'المتصدرين': 'top', 'ترتيب': 'top',
+
+    'daily': 'daily', 'd': 'daily', 'day': 'daily',
+    'يومي': 'daily', 'راتب': 'daily', 'يومية': 'daily', 'هدية': 'daily',
+
+    'profile': 'profile', 'p': 'profile', 'user': 'profile',
+    'بروفايل': 'profile', 'شخصية': 'profile', 'حسابي': 'profile', 'هويتي': 'profile',
+
+    'transfer': 'trans', 'trans': 'trans', 'pay': 'trans', 'give': 'trans',
+    'تحويل': 'trans', 'حول': 'trans',
+
+    'bank': 'bank', 'bnk': 'bank', 'dep': 'deposit', 'wd': 'withdraw',
+    'بنك': 'bank', 'ايداع': 'deposit', 'سحب': 'withdraw'
+};
+
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
     const now = new Date(); const diff = now.getUTCDate() - (now.getUTCDay() + 2) % 7; 
@@ -64,16 +88,14 @@ module.exports = {
             return; 
         }
 
-        // إعدادات
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
 
-        // 2. تتبع سقاية الشجرة (قبل تجاهل البوتات)
+        // 2. تتبع سقاية الشجرة
         if (settings && settings.treeChannelID && message.channel.id === settings.treeChannelID) {
             if (message.author.bot) {
                 const fullContent = (message.content || "") + " " + (message.embeds[0]?.description || "") + " " + (message.embeds[0]?.title || "");
                 const lowerContent = fullContent.toLowerCase();
                 const validPhrases = ["watered the tree", "سقى الشجرة", "has watered", "قام بسقاية"];
-                
                 if (validPhrases.some(p => lowerContent.includes(p))) {
                     const match = fullContent.match(/<@!?(\d+)>/);
                     if (match && match[1]) {
@@ -94,31 +116,29 @@ module.exports = {
         if (message.author.bot) return;
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (البحث الشامل بدون قاموس) 🌟
+        // 🌟 3. معالج الاختصارات (المحصور بالقناة فقط) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // أ) البحث في قاعدة البيانات عن الاختصار
-            let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
+            // البحث: يجب أن يتطابق الـ ChannelID والـ ShortcutWord معاً
+            const shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            // ب) Fallback (بحث عام)
-            if (!shortcut) {
-                shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
-                    .get(message.guild.id, shortcutWord);
-            }
-            
-            if (shortcut) {
-                const targetName = shortcut.commandName.toLowerCase(); // مثلاً: "رصيد"
+            // ( 🛑 تم حذف كود البحث العام Fallback من هنا 🛑 )
 
-                // ج) البحث الشامل في الأوامر (الاسم أو الـ Aliases)
-                // هذا الكود يبحث في كل أمر: هل اسمك يطابق targetName؟ أو هل لديك alias يطابق targetName؟
-                const cmd = client.commands.find(c => 
-                    c.name === targetName || 
-                    (c.aliases && c.aliases.includes(targetName))
-                );
+            if (shortcut) {
+                let targetCommandName = shortcut.commandName.toLowerCase();
+                
+                // استخدام القاموس للترجمة
+                if (COMMAND_ALIASES_MAP[targetCommandName]) {
+                    targetCommandName = COMMAND_ALIASES_MAP[targetCommandName];
+                }
+
+                // البحث عن الأمر
+                const cmd = client.commands.get(targetCommandName) || 
+                            client.commands.find(c => c.aliases && c.aliases.includes(targetCommandName));
 
                 if (cmd) {
                     if (checkPermissions(message, cmd)) {
@@ -132,15 +152,12 @@ module.exports = {
                         } catch (e) { console.error(e); }
                     }
                     return; // تم التنفيذ
-                } else {
-                    // إذا وصلنا هنا، يعني الاختصار مسجل في الداتابيس لكن لا يوجد أمر يطابقه
-                    // console.log(`[Shortcut Debug] Command '${targetName}' not found in loaded commands.`);
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
         // ============================================================
 
-        // 4. معالج البريفكس
+        // 4. معالج البريفكس العادي
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -148,7 +165,6 @@ module.exports = {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
-            
             if (command) {
                 let isAllowed = false;
                 if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
