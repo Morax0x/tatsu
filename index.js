@@ -1,13 +1,14 @@
+// ( 🌟 Added REST and Routes imports 🌟 )
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, PermissionsBitField, Events, Colors, MessageFlags, ChannelType, REST, Routes, Partials } = require("discord.js");
 const SQLite = require("better-sqlite3");
 const fs = require('fs');
 const path = require('path');
 
 // ==================================================================
-// 1. إعداد قاعدة البيانات
+// 1. Database Setup
 // ==================================================================
 const sql = new SQLite('./mainDB.sqlite');
-// ( ⚠️ تم حذف سطر pragma WAL من هنا لفك القفل ⚠️ )
+sql.pragma('journal_mode = WAL');
 
 try {
     const { setupDatabase } = require("./database-setup.js");
@@ -18,7 +19,7 @@ try {
     process.exit(1);
 }
 
-// Ensure critical columns exist
+// Ensure critical columns exist (Migration)
 try { sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
@@ -39,11 +40,9 @@ try { sql.prepare("ALTER TABLE settings ADD COLUMN streakTimerChannelID TEXT").r
 try { sql.prepare("ALTER TABLE settings ADD COLUMN dailyTimerChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("ALTER TABLE settings ADD COLUMN weeklyTimerChannelID TEXT").run(); } catch (e) {}
 try { sql.prepare("CREATE TABLE IF NOT EXISTS rainbow_roles (roleID TEXT PRIMARY KEY, guildID TEXT NOT NULL)").run(); } catch (e) {}
-try { sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT NOT NULL, trigger TEXT NOT NULL, response TEXT NOT NULL, images TEXT, matchType TEXT DEFAULT 'exact', cooldown INTEGER DEFAULT 0, allowedChannels TEXT, ignoredChannels TEXT, UNIQUE(guildID, trigger))").run(); } catch(e) {}
-
 
 // ==================================================================
-// 2. Import Handlers
+// 2. Import Handlers and Files
 // ==================================================================
 const { handleStreakMessage, calculateBuffMultiplier, checkDailyStreaks, updateNickname, calculateMoraBuff, checkDailyMediaStreaks, sendMediaStreakReminders, sendDailyMediaUpdate, sendStreakWarnings } = require("./streak-handler.js");
 const { checkPermissions, checkCooldown } = require("./permission-handler.js");
@@ -92,7 +91,7 @@ client.sql = sql;
 client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
 
-// Prepared Statements
+// Prepared Statements (Loaded early)
 client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
 client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP, lastFarmYield) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP, @lastFarmYield);");
 client.defaultData = { user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0 };
@@ -106,6 +105,7 @@ client.setTotalStats = sql.prepare("INSERT OR REPLACE INTO user_total_stats (id,
 client.getQuestNotif = sql.prepare("SELECT * FROM quest_notifications WHERE id = ?");
 client.setQuestNotif = sql.prepare("INSERT OR REPLACE INTO quest_notifications (id, userID, guildID, dailyNotif, weeklyNotif, achievementsNotif, levelNotif) VALUES (@id, @userID, @guildID, @dailyNotif, @weeklyNotif, @achievementsNotif, @levelNotif);");
 
+// (Optional) Backup scheduler
 try { require('./handlers/backup-scheduler.js')(client, sql); } catch(e) {}
 
 const defaultDailyStats = { messages: 0, images: 0, stickers: 0, reactions_added: 0, replies_sent: 0, mentions_received: 0, vc_minutes: 0, water_tree: 0, counting_channel: 0, meow_count: 0, streaming_minutes: 0, disboard_bumps: 0 };
@@ -129,7 +129,7 @@ function getWeekStartDateString() {
 }
 
 // ==================================================================
-// 4. Helper Functions
+// 4. Core System Functions (Levelling, Quests)
 // ==================================================================
 
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
@@ -161,6 +161,7 @@ client.checkAndAwardLevelRoles = async function(member, newLevel) {
     } catch (err) { console.error("[Level Roles] Error:", err.message); }
 }
 
+// Leveling function
 client.sendLevelUpMessage = async function(messageOrInteraction, member, newLevel, oldLevel, xpData) {
     try {
         await client.checkAndAwardLevelRoles(member, newLevel);
@@ -366,6 +367,7 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
+// Increment Stats
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
     if (stat === 'messages') {
         if (!client.recentMessageTimestamps.has(guildID)) client.recentMessageTimestamps.set(guildID, []);
@@ -466,29 +468,41 @@ client.checkRoleAchievement = async function(member, roleId, achievementId) {
 }
 
 // ==================================================================
-// 5. أنظمة الاقتصاد والمجدولات
+// 5. Economy, Farm, and Loans
 // ==================================================================
 
 function updateMarketPrices() {
     try {
         const allItems = sql.prepare("SELECT * FROM market_items").all();
         if (allItems.length === 0) return;
+
         const updateStmt = sql.prepare(`UPDATE market_items SET currentPrice = ?, lastChangePercent = ?, lastChange = ? WHERE id = ?`);
+
         const transaction = sql.transaction(() => {
             for (const item of allItems) {
                 const oldPrice = item.currentPrice;
-                let changePercent = (Math.random() * 0.30) - 0.15; 
-                if (oldPrice > 1000 && changePercent > 0) changePercent /= 5; 
+                let changePercent = (Math.random() * 0.30) - 0.15; // -15% to +15%
+
+                if (oldPrice > 1000) {
+                    if (changePercent > 0) {
+                        changePercent = changePercent / 5; 
+                    }
+                }
+
                 let newPrice = Math.floor(oldPrice * (1 + changePercent));
                 if (newPrice > 10000) newPrice = 10000; 
                 if (newPrice < 50) newPrice = 50;        
+
                 const changeAmount = newPrice - oldPrice;
                 const finalPercent = ((changeAmount / oldPrice) * 100).toFixed(2);
+
                 updateStmt.run(newPrice, finalPercent, changeAmount, item.id);
             }
         });
+        
         transaction();
         console.log(`[Market] Prices updated.`);
+        
     } catch (err) { console.error("[Market] Error updating prices:", err.message); }
 }
 
@@ -505,22 +519,28 @@ const checkLoanPayments = async () => {
             if (!userData) continue;
             const paymentAmount = Math.min(loan.dailyPayment, loan.remainingAmount);
             let remainingToPay = paymentAmount;
+            let logDetails = [];
             
             if (userData.mora > 0) {
                 const takeMora = Math.min(userData.mora, remainingToPay);
                 userData.mora -= takeMora;
                 remainingToPay -= takeMora;
+                logDetails.push(`💰 مورا: ${takeMora.toLocaleString()}`);
             }
+            // ... (Full logic from previous versions) ...
             if (remainingToPay > 0) {
                 const xpPenalty = Math.floor(remainingToPay * 2);
                 if (userData.xp >= xpPenalty) userData.xp -= xpPenalty; else { userData.xp = 0; if (userData.level > 1) userData.level -= 1; }
+                logDetails.push(`✨ خبرة (عقوبة): خصم ${xpPenalty} XP`);
                 remainingToPay = 0; 
             }
             client.setLevel.run(userData);
             loan.remainingAmount -= paymentAmount;
             loan.lastPaymentDate = now;
             if (loan.remainingAmount <= 0) {
+                loan.remainingAmount = 0;
                 sql.prepare("DELETE FROM user_loans WHERE userID = ? AND guildID = ?").run(loan.userID, loan.guildID);
+                logDetails.push("🎉 **تم سداد القرض بالكامل!**");
             } else {
                 sql.prepare("UPDATE user_loans SET remainingAmount = ?, lastPaymentDate = ? WHERE userID = ? AND guildID = ?").run(loan.remainingAmount, now, loan.userID, loan.guildID);
             }
@@ -554,6 +574,7 @@ async function processFarmYields() {
     } catch (err) { console.error("[Farm] Error processing yields:", err); }
 }
 
+// ( 🌟 Check Temporary Roles Function 🌟 )
 async function checkTemporaryRoles(client) {
     const now = Date.now();
     const expiredRoles = sql.prepare("SELECT * FROM temporary_roles WHERE expiresAt <= ?").all(now);
@@ -567,14 +588,17 @@ async function checkTemporaryRoles(client) {
             const member = await guild.members.fetch(record.userID).catch(() => null);
             const role = guild.roles.cache.get(record.roleID);
             if (member && role) {
-                await member.roles.remove(role, "انتهاء مدة الرتبة المؤقتة");
+                await member.roles.remove(role, "انتهاء مدة الرتبة المؤقتة (متجر/جائزة)");
                 console.log(`[Temp Roles] Removed role ${role.name} from ${member.user.tag}`);
             }
-        } catch (e) { console.error(`[Temp Roles Error]: ${e.message}`); }
+        } catch (e) {
+            console.error(`[Temp Roles Error]: ${e.message}`);
+        }
         sql.prepare("DELETE FROM temporary_roles WHERE userID = ? AND guildID = ? AND roleID = ?").run(record.userID, record.guildID, record.roleID);
     }
 }
 
+// ( 🌟 Calculate Bank Interest 🌟 )
 const calculateInterest = () => {
     const now = Date.now();
     const INTEREST_RATE = 0.0005; 
@@ -599,17 +623,22 @@ const calculateInterest = () => {
     }
 };
 
+// ( 🌟 Update Timer Channels Function 🌟 )
 async function updateTimerChannels(client) {
     const guilds = client.guilds.cache.values();
     const KSA_OFFSET = 3 * 60 * 60 * 1000; 
+
     for (const guild of guilds) {
         const settings = sql.prepare("SELECT streakTimerChannelID, dailyTimerChannelID, weeklyTimerChannelID FROM settings WHERE guild = ?").get(guild.id);
         if (!settings) continue;
+
         const now = new Date();
         const nowKSA = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + KSA_OFFSET);
 
-        const endOfDay = new Date(nowKSA); endOfDay.setHours(24, 0, 0, 0);
+        const endOfDay = new Date(nowKSA);
+        endOfDay.setHours(24, 0, 0, 0);
         const msUntilDaily = endOfDay - nowKSA;
+        
         const hDaily = Math.floor(msUntilDaily / (1000 * 60 * 60));
         const mDaily = Math.floor((msUntilDaily % (1000 * 60 * 60)) / (1000 * 60));
         const dailyText = `${hDaily} سـ ${mDaily} د`;
@@ -619,6 +648,7 @@ async function updateTimerChannels(client) {
         const daysUntilFriday = (5 + 7 - dayOfWeek) % 7; 
         endOfWeek.setDate(nowKSA.getDate() + daysUntilFriday + (daysUntilFriday === 0 && nowKSA.getHours() >= 0 ? 7 : 0));
         endOfWeek.setHours(24, 0, 0, 0); 
+        
         const msUntilWeekly = endOfWeek - nowKSA;
         const dWeekly = Math.floor(msUntilWeekly / (1000 * 60 * 60 * 24));
         const hWeekly = Math.floor((msUntilWeekly % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
@@ -630,40 +660,54 @@ async function updateTimerChannels(client) {
                 const channel = guild.channels.cache.get(channelId);
                 if (channel) {
                     const newName = `${prefix} ${timeText}`;
-                    if (channel.name !== newName) await channel.setName(newName);
+                    if (channel.name !== newName) {
+                        await channel.setName(newName);
+                    }
                 }
             } catch (e) { }
         };
+
         await updateChannel(settings.streakTimerChannelID, '🔥〢الـستـريـك:', dailyText);
         await updateChannel(settings.dailyTimerChannelID, '🏆〢مهام اليومية:', dailyText);
         await updateChannel(settings.weeklyTimerChannelID, '🔮〢مهام اسبوعية:', weeklyText);
     }
 }
+// -----------------------------------------------------
 
+// --- ( 🌈 Rainbow Roles Update Function 🌈 ) ---
 async function updateRainbowRoles(client) {
     try {
         const rainbowRoles = sql.prepare("SELECT roleID, guildID FROM rainbow_roles").all();
         if (rainbowRoles.length === 0) return;
+
+        // Generate a random bright color
         const randomColor = Math.floor(Math.random() * 16777215);
+
         for (const record of rainbowRoles) {
             const guild = client.guilds.cache.get(record.guildID);
             if (!guild) continue;
             const role = guild.roles.cache.get(record.roleID);
-            if (role) await role.edit({ color: randomColor }).catch(() => {});
-            else sql.prepare("DELETE FROM rainbow_roles WHERE roleID = ?").run(record.roleID);
+            if (role) {
+                await role.edit({ color: randomColor }).catch(() => {});
+            } else {
+                sql.prepare("DELETE FROM rainbow_roles WHERE roleID = ?").run(record.roleID);
+            }
         }
     } catch (e) { console.error("[Rainbow Roles Error]", e); }
 }
+// -----------------------------------------------------
 
 // ==================================================================
-// 6. تشغيل البوت
+// 6. Start Bot
 // ==================================================================
 client.on(Events.ClientReady, async () => { 
     console.log(`✅ Logged in as ${client.user.username}`);
     
+    // Cache Loading
     client.antiRolesCache = new Map();
     await loadRoleSettings(sql, client.antiRolesCache);
 
+    // Command Registration
     const rest = new REST({ version: '10' }).setToken(botToken);
     const commands = [];
     const loadedCommandNames = new Set();
@@ -691,11 +735,11 @@ client.on(Events.ClientReady, async () => {
         } catch (err) { console.error(`[Load Error] ${file}:`, err.message); }
     }
     try { 
-        await rest.put(Routes.applicationCommands(client.user.id), { body: commands }); 
-        console.log(`✅ Reloaded ${commands.length} commands.`); 
+        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands }); 
+        console.log(`✅ Successfully reloaded ${commands.length} application (/) commands.`); 
     } catch (error) { console.error("[Deploy Error]", error); }
 
-    // تشغيل المجدولات
+    // Start Intervals
     setInterval(calculateInterest, 60 * 60 * 1000); calculateInterest();
     setInterval(updateMarketPrices, 60 * 60 * 1000); updateMarketPrices();
     setInterval(checkLoanPayments, 60 * 60 * 1000);
@@ -704,8 +748,10 @@ client.on(Events.ClientReady, async () => {
     setInterval(() => checkDailyMediaStreaks(client, sql), 3600000); checkDailyMediaStreaks(client, sql);
     setInterval(() => checkUnjailTask(client), 5 * 60 * 1000); checkUnjailTask(client);
     setInterval(() => checkTemporaryRoles(client), 60000); checkTemporaryRoles(client);
+    
+    // ( 🌟 Timers 🌟 )
     setInterval(() => updateTimerChannels(client), 5 * 60 * 1000); updateTimerChannels(client); 
-    setInterval(() => updateRainbowRoles(client), 180000); 
+    setInterval(() => updateRainbowRoles(client), 180000); // Every 3 minutes for Rainbow Roles
 
     let lastReminderSentHour = -1; let lastUpdateSentHour = -1; let lastWarningSentHour = -1; 
     setInterval(() => { 
@@ -732,6 +778,7 @@ client.on(Events.ClientReady, async () => {
     sendDailyMediaUpdate(client, sql);
 }); 
 
+// ( 🌟 Pass Cache to Interaction Handler 🌟 )
 require('./interaction-handler.js')(client, sql, client.antiRolesCache);
 
 const eventsPath = path.join(__dirname, 'events');
