@@ -20,7 +20,6 @@ try {
 }
 
 // Ensure critical columns exist (Migration)
-// (نستخدم try-catch صامت لتجنب الإزعاج عند الإغلاق)
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN casinoChannelID TEXT").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN chatChannelID TEXT").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN treeBotID TEXT").run(); } catch (e) {}
@@ -41,6 +40,11 @@ try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN streakTimerChann
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN dailyTimerChannelID TEXT").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("ALTER TABLE settings ADD COLUMN weeklyTimerChannelID TEXT").run(); } catch (e) {}
 try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS rainbow_roles (roleID TEXT PRIMARY KEY, guildID TEXT NOT NULL)").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("CREATE TABLE IF NOT EXISTS auto_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, guildID TEXT NOT NULL, trigger TEXT NOT NULL, response TEXT NOT NULL, images TEXT, matchType TEXT DEFAULT 'exact', cooldown INTEGER DEFAULT 0, allowedChannels TEXT, ignoredChannels TEXT, UNIQUE(guildID, trigger))").run(); } catch(e) {}
+// ( 🌟 إضافة أعمدة الصيد هنا للتأكيد 🌟 )
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN lastFish INTEGER DEFAULT 0").run(); } catch (e) {}
+try { if(sql.open) sql.prepare("ALTER TABLE levels ADD COLUMN rodLevel INTEGER DEFAULT 1").run(); } catch (e) {}
+
 
 // ==================================================================
 // 2. Import Handlers and Files
@@ -92,11 +96,21 @@ client.sql = sql;
 client.generateSingleAchievementAlert = generateSingleAchievementAlert;
 client.generateQuestAlert = generateQuestAlert;
 
-// Prepared Statements
+// Prepared Statements (Updated with Fishing Columns)
 if (sql.open) {
     client.getLevel = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?");
-    client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP, lastFarmYield) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP, @lastFarmYield);");
-    client.defaultData = { user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0 };
+    
+    // ( 🌟 تم تحديث هذا السطر لإضافة lastFish و rodLevel 🌟 )
+    client.setLevel = sql.prepare("INSERT OR REPLACE INTO levels (user, guild, xp, level, totalXP, mora, lastWork, lastDaily, dailyStreak, bank, lastInterest, totalInterestEarned, hasGuard, guardExpires, lastCollected, totalVCTime, lastRob, lastGuess, lastRPS, lastRoulette, lastTransfer, lastDeposit, shop_purchases, total_meow_count, boost_count, lastPVP, lastFarmYield, lastFish, rodLevel) VALUES (@user, @guild, @xp, @level, @totalXP, @mora, @lastWork, @lastDaily, @dailyStreak, @bank, @lastInterest, @totalInterestEarned, @hasGuard, @guardExpires, @lastCollected, @totalVCTime, @lastRob, @lastGuess, @lastRPS, @lastRoulette, @lastTransfer, @lastDeposit, @shop_purchases, @total_meow_count, @boost_count, @lastPVP, @lastFarmYield, @lastFish, @rodLevel);");
+    
+    client.defaultData = { 
+        user: null, guild: null, xp: 0, level: 1, totalXP: 0, mora: 0, lastWork: 0, lastDaily: 0, dailyStreak: 0, bank: 0, 
+        lastInterest: 0, totalInterestEarned: 0, hasGuard: 0, guardExpires: 0, lastCollected: 0, totalVCTime: 0, 
+        lastRob: 0, lastGuess: 0, lastRPS: 0, lastRoulette: 0, lastTransfer: 0, lastDeposit: 0, shop_purchases: 0, 
+        total_meow_count: 0, boost_count: 0, lastPVP: 0, lastFarmYield: 0, 
+        // ( 🌟 القيم الافتراضية للصيد 🌟 )
+        lastFish: 0, rodLevel: 1 
+    };
 
     client.getDailyStats = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?");
     client.setDailyStats = sql.prepare("INSERT OR REPLACE INTO user_daily_stats (id, userID, guildID, date, messages, images, stickers, reactions_added, replies_sent, mentions_received, vc_minutes, water_tree, counting_channel, meow_count, streaming_minutes, disboard_bumps) VALUES (@id, @userID, @guildID, @date, @messages, @images, @stickers, @reactions_added, @replies_sent, @mentions_received, @vc_minutes, @water_tree, @counting_channel, @meow_count, @streaming_minutes, @disboard_bumps);");
@@ -132,7 +146,7 @@ function getWeekStartDateString() {
 }
 
 // ==================================================================
-// 4. Helper Functions
+// 4. Core Functions
 // ==================================================================
 
 client.checkAndAwardLevelRoles = async function(member, newLevel) {
@@ -374,11 +388,8 @@ client.checkAchievements = async function(client, member, levelData, totalStatsD
     }
 }
 
-// Increment Stats ( 🌟 Safety Fix Here 🌟 )
 client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
-    // Safety Check
     if (!client.sql.open) return;
-
     if (stat === 'messages') {
         if (!client.recentMessageTimestamps.has(guildID)) client.recentMessageTimestamps.set(guildID, []);
         const guildTimestamps = client.recentMessageTimestamps.get(guildID);
@@ -444,10 +455,7 @@ client.incrementQuestStats = async function(userID, guildID, stat, amount = 1) {
             }
         }
     } catch (err) { 
-        // Silent catch during database locks
-        if (!err.message.includes("database connection is not open")) {
-            console.error(`[IncrementQuestStats] Error:`, err.message);
-        }
+        if (!err.message.includes("database connection is not open")) { console.error(`[IncrementQuestStats] Error:`, err.message); }
     }
 }
 
@@ -756,6 +764,7 @@ client.on(Events.ClientReady, async () => {
     sendDailyMediaUpdate(client, sql);
 }); 
 
+// ( 🌟 Pass Cache to Interaction Handler 🌟 )
 require('./interaction-handler.js')(client, sql, client.antiRolesCache);
 
 const eventsPath = path.join(__dirname, 'events');
