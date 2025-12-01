@@ -6,6 +6,9 @@ const rootDir = process.cwd();
 const fishItems = require(path.join(rootDir, 'json', 'fish-items.json'));
 const rodsConfig = require(path.join(rootDir, 'json', 'fishing-rods.json'));
 
+// 🔒 آيدي المالك (الوحيد الذي يتجاهل الكولداون)
+const OWNER_ID = "1145327691772481577";
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('صيد')
@@ -56,7 +59,8 @@ module.exports = {
             const lastFish = userData.lastFish || 0;
             const now = Date.now();
 
-            if (now - lastFish < cooldown) {
+            // ( 🌟 التعديل هنا: إذا لم يكن المالك، طبق الكولداون 🌟 )
+            if (user.id !== OWNER_ID && (now - lastFish < cooldown)) {
                 const remaining = lastFish + cooldown - now;
                 const hours = Math.floor(remaining / 3600000);
                 const minutes = Math.floor((remaining % 3600000) / 60000);
@@ -106,7 +110,7 @@ module.exports = {
 
             // 4. تحديث البيانات (المورا + الوقت)
             userData.lastFish = now;
-            userData.mora = (userData.mora || 0) + totalValue; // ( 🌟 هنا الإضافة المهمة 🌟 )
+            userData.mora = (userData.mora || 0) + totalValue; 
             
             client.setLevel.run(userData); 
 
