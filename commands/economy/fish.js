@@ -26,7 +26,7 @@ module.exports = {
         const reply = async (payload) => {
             if (isSlash) {
                 if (interactionOrMessage.deferred || interactionOrMessage.replied) return interactionOrMessage.editReply(payload);
-                return interactionOrMessage.reply({ ...payload, ephemeral: false }); // (تم تعديل ephemeral)
+                return interactionOrMessage.reply({ ...payload, ephemeral: false }); 
             }
             return interactionOrMessage.reply(payload);
         };
@@ -34,11 +34,10 @@ module.exports = {
         if (isSlash) await interactionOrMessage.deferReply();
 
         try {
-            // 1. جلب بيانات المستخدم (أو إنشاؤه إذا لم يوجد)
+            // 1. جلب بيانات المستخدم
             let userData = client.getLevel.get(user.id, guild.id);
             
             if (!userData) {
-                // ( 🌟 هنا التصحيح: استخدام client.defaultData لضمان وجود كل القيم 🌟 )
                 userData = { 
                     ...client.defaultData, 
                     user: user.id, 
@@ -105,9 +104,11 @@ module.exports = {
                 }
             }
 
-            // 4. تحديث الوقت
+            // 4. تحديث البيانات (المورا + الوقت)
             userData.lastFish = now;
-            client.setLevel.run(userData); // (استخدام الدالة المركزية للتحديث)
+            userData.mora = (userData.mora || 0) + totalValue; // ( 🌟 هنا الإضافة المهمة 🌟 )
+            
+            client.setLevel.run(userData); 
 
             // 5. إرسال النتيجة
             const summary = {};
@@ -124,7 +125,7 @@ module.exports = {
                 description += `- **${info.count}x** ${info.emoji} ${name} ${rarityStar}\n`;
             }
             
-            description += `\n💰 **القيمة التقديرية:** \`${totalValue.toLocaleString()}\` مورا`;
+            description += `\n💰 **القيمة التقديرية:** \`${totalValue.toLocaleString()}\` مورا (تمت إضافتها لرصيدك)`;
 
             const embed = new EmbedBuilder()
                 .setTitle(`🎣 رحلة صيد ناجحة!`)
