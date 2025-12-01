@@ -1,7 +1,7 @@
 [
     {
         "level": 1,
-        "name": "سنارة خشبية مهترئة",
+        "name": "سنارة خشبية",
         "price": 0,
         "cooldown": 3600000, 
         "luck_bonus": 0,
@@ -11,36 +11,36 @@
     {
         "level": 2,
         "name": "سنارة حديدية",
-        "price": 5000,
-        "cooldown": 3000000,
+        "price": 15000, 
+        "cooldown": 3600000,
         "luck_bonus": 2,
         "max_fish": 2,
         "max_rarity": 3
     },
     {
         "level": 3,
-        "name": "سنارة ذهبية",
-        "price": 25000,
-        "cooldown": 2400000,
+        "name": "سنارة برونز",
+        "price": 75000, 
+        "cooldown": 3000000,
         "luck_bonus": 5,
         "max_fish": 2,
         "max_rarity": 4
     },
     {
         "level": 4,
-        "name": "سنارة ماسية",
-        "price": 100000,
-        "cooldown": 1800000,
-        "luck_bonus": 10,
+        "name": "سنارة ذهبية",
+        "price": 350000, 
+        "cooldown": 2400000,
+        "luck_bonus": 8,
         "max_fish": 3,
         "max_rarity": 5
     },
     {
         "level": 5,
-        "name": "سنارة الامبراطور الأسطورية",
-        "price": 500000,
-        "cooldown": 900000,
-        "luck_bonus": 20,
+        "name": "سنارة الملوك",
+        "price": 1000000, 
+        "cooldown": 1800000,
+        "luck_bonus": 15,
         "max_fish": 4,
         "max_rarity": 6
     }
