@@ -1,15 +1,13 @@
 const SQLite = require("better-sqlite3");
 const defaultMarketItems = require("./json/market-items.json");
-const fishItems = require("./json/fish-items.json");
+const fishItems = require("./json/fish-items.json"); // ( 🌟 تأكدنا من وجود هذا )
 
 function setupDatabase(sql) {
-    // Activate WAL Mode for performance
     sql.pragma('journal_mode = WAL');
     sql.pragma('synchronous = 1');
 
     console.log("[Database] Checking integrity & schema...");
 
-    // 1. All tables in one array
     const tables = [
         "CREATE TABLE IF NOT EXISTS levels (user TEXT NOT NULL, guild TEXT NOT NULL, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1, totalXP INTEGER DEFAULT 0, mora INTEGER DEFAULT 0, lastWork INTEGER DEFAULT 0, lastDaily INTEGER DEFAULT 0, dailyStreak INTEGER DEFAULT 0, bank INTEGER DEFAULT 0, lastInterest INTEGER DEFAULT 0, totalInterestEarned INTEGER DEFAULT 0, hasGuard INTEGER DEFAULT 0, guardExpires INTEGER DEFAULT 0, totalVCTime INTEGER DEFAULT 0, lastCollected INTEGER DEFAULT 0, lastRob INTEGER DEFAULT 0, lastGuess INTEGER DEFAULT 0, lastRPS INTEGER DEFAULT 0, lastRoulette INTEGER DEFAULT 0, lastTransfer INTEGER DEFAULT 0, lastDeposit INTEGER DEFAULT 0, shop_purchases INTEGER DEFAULT 0, total_meow_count INTEGER DEFAULT 0, boost_count INTEGER DEFAULT 0, lastPVP INTEGER DEFAULT 0, lastFarmYield INTEGER DEFAULT 0, lastFish INTEGER DEFAULT 0, rodLevel INTEGER DEFAULT 1, PRIMARY KEY (user, guild))",
         "CREATE TABLE IF NOT EXISTS settings (guild TEXT PRIMARY KEY, voiceXP INTEGER DEFAULT 0, voiceCooldown INTEGER DEFAULT 60000, customXP INTEGER DEFAULT 25, customCooldown INTEGER DEFAULT 60000, levelUpMessage TEXT, lvlUpTitle TEXT, lvlUpDesc TEXT, lvlUpImage TEXT, lvlUpColor TEXT, lvlUpMention INTEGER DEFAULT 1, streakEmoji TEXT DEFAULT '🔥', questChannelID TEXT, treeBotID TEXT, treeChannelID TEXT, treeMessageID TEXT, countingChannelID TEXT, vipRoleID TEXT, casinoChannelID TEXT, dropGiveawayChannelID TEXT, dropTitle TEXT, dropDescription TEXT, dropColor TEXT, dropFooter TEXT, dropButtonLabel TEXT, dropButtonEmoji TEXT, dropMessageContent TEXT, lastMediaUpdateSent TEXT, lastMediaUpdateMessageID TEXT, lastMediaUpdateChannelID TEXT, shopChannelID TEXT, bumpChannelID TEXT, customRoleAnchorID TEXT, customRolePanelTitle TEXT, customRolePanelDescription TEXT, customRolePanelImage TEXT, customRolePanelColor TEXT, lastQuestPanelChannelID TEXT, streakTimerChannelID TEXT, dailyTimerChannelID TEXT, weeklyTimerChannelID TEXT, img_level TEXT, img_mora TEXT, img_streak TEXT, img_media_streak TEXT, img_strongest TEXT, img_weekly_xp TEXT, img_daily_xp TEXT, img_achievements TEXT)",
@@ -63,7 +61,6 @@ function setupDatabase(sql) {
 
     sql.prepare("DROP TABLE IF EXISTS command_channels").run();
 
-    // Migration logic
     function ensureColumn(table, column, typeDef) {
         try {
             const cols = sql.prepare(`PRAGMA table_info(${table})`).all();
@@ -74,8 +71,7 @@ function setupDatabase(sql) {
         } catch (e) { }
     }
 
-    // Perform Migrations
-    // ( 🌟 Added missing fishing columns here 🌟 )
+    // Migrations
     ['mora', 'lastWork', 'lastDaily', 'dailyStreak', 'bank', 'lastInterest', 'totalInterestEarned', 'hasGuard', 'guardExpires', 'lastCollected', 'totalVCTime', 'lastRob', 'lastGuess', 'lastRPS', 'lastRoulette', 'lastTransfer', 'lastDeposit', 'shop_purchases', 'total_meow_count', 'boost_count', 'lastPVP', 'lastFarmYield', 'lastFish', 'rodLevel'].forEach(col => ensureColumn('levels', col, 'INTEGER DEFAULT 0'));
 
     ['water_tree', 'counting_channel', 'meow_count', 'streaming_minutes', 'disboard_bumps'].forEach(col => {
@@ -93,14 +89,7 @@ function setupDatabase(sql) {
     ensureColumn('streaks', 'highestStreak', 'INTEGER DEFAULT 0');
     ensureColumn('streaks', 'has12hWarning', 'INTEGER DEFAULT 0');
     
-    const settingsCols = [
-        "questChannelID", "treeBotID", "treeChannelID", "treeMessageID", "countingChannelID", "vipRoleID", "casinoChannelID", 
-        "dropGiveawayChannelID", "dropTitle", "dropDescription", "dropColor", "dropFooter", "dropButtonLabel", "dropButtonEmoji", 
-        "dropMessageContent", "lastMediaUpdateSent", "lastMediaUpdateMessageID", "lastMediaUpdateChannelID", "shopChannelID", 
-        "bumpChannelID", "customRoleAnchorID", "customRolePanelTitle", "customRolePanelDescription", "customRolePanelImage", 
-        "customRolePanelColor", "lastQuestPanelChannelID", "streakTimerChannelID", "dailyTimerChannelID", "weeklyTimerChannelID",
-        "img_level", "img_mora", "img_streak", "img_media_streak", "img_strongest", "img_weekly_xp", "img_daily_xp", "img_achievements"
-    ];
+    const settingsCols = ["questChannelID", "treeBotID", "treeChannelID", "treeMessageID", "countingChannelID", "vipRoleID", "casinoChannelID", "dropGiveawayChannelID", "dropTitle", "dropDescription", "dropColor", "dropFooter", "dropButtonLabel", "dropButtonEmoji", "dropMessageContent", "lastMediaUpdateSent", "lastMediaUpdateMessageID", "lastMediaUpdateChannelID", "shopChannelID", "bumpChannelID", "customRoleAnchorID", "customRolePanelTitle", "customRolePanelDescription", "customRolePanelImage", "customRolePanelColor", "lastQuestPanelChannelID", "streakTimerChannelID", "dailyTimerChannelID", "weeklyTimerChannelID", "img_level", "img_mora", "img_streak", "img_media_streak", "img_strongest", "img_weekly_xp", "img_daily_xp", "img_achievements"];
     settingsCols.forEach(col => ensureColumn('settings', col, 'TEXT'));
     
     ensureColumn('quest_notifications', 'levelNotif', 'INTEGER DEFAULT 1');
@@ -109,24 +98,26 @@ function setupDatabase(sql) {
     ensureColumn('active_giveaways', 'isFinished', 'INTEGER DEFAULT 0');
     ensureColumn('media_streak_channels', 'lastReminderMessageID', 'TEXT');
 
-    // 3. Market Items Init (Includes Fish)
-    const itemsCount = sql.prepare("SELECT count(*) as count FROM market_items").get();
-    // Check if table is empty OR force update if you want to inject new fish items
-    // For safety, let's use INSERT OR IGNORE for fish items
+    // ( 🌟 تحديث السوق قسرياً لإضافة الأسماك 🌟 )
+    console.log("[Market] Syncing items (Fish & Default)...");
+    
     const insertItem = sql.prepare("INSERT OR IGNORE INTO market_items (id, name, description, currentPrice) VALUES (@id, @name, @description, @price)");
     
-    sql.transaction(() => { 
+    sql.transaction(() => {
+        // إضافة العناصر الافتراضية
         defaultMarketItems.forEach((item) => insertItem.run(item));
+        
+        // إضافة الأسماك (هذا هو المهم لحل المشكلة)
         fishItems.forEach((fish) => {
             insertItem.run({
                 id: fish.id,
                 name: fish.name,
-                description: `سمكة نادرة من نوع ${fish.name}`,
+                description: `سمكة من نوع ${fish.name}`,
                 price: fish.price
             });
         });
     })();
-
+    
     console.log("[Database] ✅ All tables checked, updated, and ready.");
 }
 
