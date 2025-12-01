@@ -5,41 +5,9 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
-// كولداون الردود التلقائية
+// كولداون الردود التلقائية + سقاية الشجرة
 const autoResponderCooldowns = new Collection();
-// كولداون سقاية الشجرة
 const treeCooldowns = new Set();
-
-// ( 🌟 القاموس الشامل للاختصارات - يضمن عمل الكلمات الشائعة 🌟 )
-const COMMAND_ALIASES_MAP = {
-    // المورا / الرصيد
-    'balance': 'mora', 'bal': 'mora', 'b': 'mora', 'credits': 'mora', 'c': 'mora', 
-    'رصيد': 'mora', 'فلوس': 'mora', 'مورا': 'mora', '0': 'mora',
-
-    // الرانك / اللفل
-    'rank': 'rank', 'r': 'rank', 'level': 'rank', 'lvl': 'rank', 'l': 'rank',
-    'رانك': 'rank', 'لفل': 'rank', 'مستوى': 'rank', 'خبرة': 'rank',
-
-    // التوب / المتصدرين
-    'top': 'top', 't': 'top', 'leaderboard': 'top', 'lb': 'top',
-    'توب': 'top', 'الاوائل': 'top', 'المتصدرين': 'top', 'ترتيب': 'top',
-
-    // اليومي / الراتب
-    'daily': 'daily', 'd': 'daily', 'day': 'daily',
-    'يومي': 'daily', 'راتب': 'daily', 'يومية': 'daily', 'هدية': 'daily',
-
-    // البروفايل
-    'profile': 'profile', 'p': 'profile', 'user': 'profile',
-    'بروفايل': 'profile', 'شخصية': 'profile', 'حسابي': 'profile', 'هويتي': 'profile',
-
-    // التحويل
-    'transfer': 'trans', 'trans': 'trans', 'pay': 'trans', 'give': 'trans',
-    'تحويل': 'trans', 'حول': 'trans',
-
-    // البنك
-    'bank': 'bank', 'bnk': 'bank', 'dep': 'deposit', 'wd': 'withdraw',
-    'بنك': 'bank', 'ايداع': 'deposit', 'سحب': 'withdraw'
-};
 
 function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
 function getWeekStartDateString() {
@@ -76,7 +44,7 @@ module.exports = {
 
         if (!message.guild) return;
 
-        // 1. كشف البومب (Disboard)
+        // 1. كشف البومب
         if (message.author.id === DISBOARD_BOT_ID) {
             let bumperID = null;
             if (message.interaction && message.interaction.commandName === 'bump') {
@@ -95,11 +63,9 @@ module.exports = {
             return; 
         }
 
-        // تحميل الإعدادات
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
-        let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
-        // 2. تتبع سقاية الشجرة
+        // 2. تتبع سقاية الشجرة (يجب أن يكون قبل تجاهل البوتات)
         if (settings && settings.treeChannelID && message.channel.id === settings.treeChannelID) {
             if (message.author.bot) {
                 const fullContent = (message.content || "") + " " + (message.embeds[0]?.description || "") + " " + (message.embeds[0]?.title || "");
@@ -125,35 +91,36 @@ module.exports = {
         if (message.author.bot) return;
 
         // ============================================================
-        // 🌟 3. معالج الاختصارات (النهائي والشامل) 🌟
+        // 🌟 3. معالج الاختصارات (النسخة الشاملة) 🌟
         // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
-            // أ) البحث في الداتابيس
+            // أ) البحث في القناة الحالية
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
-            // ب) Fallback (بحث عام)
+            // ب) البحث العام
             if (!shortcut) {
                 shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
                     .get(message.guild.id, shortcutWord);
             }
             
             if (shortcut) {
-                let targetName = shortcut.commandName.toLowerCase();
+                const targetName = shortcut.commandName.toLowerCase();
                 
-                // ( 🌟 استخدام القاموس للترجمة 🌟 )
-                if (COMMAND_ALIASES_MAP[targetName]) {
-                    targetName = COMMAND_ALIASES_MAP[targetName];
-                }
-
-                // ( 🌟 البحث الشامل: الاسم الأصلي أو Aliases 🌟 )
-                const cmd = client.commands.get(targetName) || 
-                            client.commands.find(c => c.aliases && c.aliases.includes(targetName));
+                // 🔍 البحث الشامل عن الأمر:
+                // 1. هل الاسم يطابق الاسم الرئيسي؟
+                // 2. هل الاسم موجود في الـ Aliases؟
+                const cmd = client.commands.find(c => 
+                    (c.name && c.name.toLowerCase() === targetName) || 
+                    (c.aliases && c.aliases.includes(targetName))
+                );
 
                 if (cmd) {
+                    console.log(`[Shortcut Log] Executing '${cmd.name}' via shortcut '${shortcutWord}'`);
+                    
                     if (checkPermissions(message, cmd)) {
                         const cooldownMsg = checkCooldown(message, cmd);
                         if (cooldownMsg) {
@@ -161,10 +128,16 @@ module.exports = {
                              return;
                         }
                         try {
-                            await cmd.execute(message, argsRaw.slice(1)); 
-                        } catch (e) { console.error(e); }
+                            // 🌟 الحل لمشكلة الأوامر التي لا ترد: تمرير prefix وهمي 🌟
+                            const finalArgs = argsRaw.slice(1);
+                            finalArgs.prefix = ""; // (مهم جداً)
+
+                            await cmd.execute(message, finalArgs); 
+                        } catch (e) { console.error(`[Shortcut Exec Error]`, e); }
                     }
-                    return; // ✅ تم التنفيذ
+                    return; // ( ✅ تم التنفيذ بنجاح، توقف هنا )
+                } else {
+                    console.log(`[Shortcut Warning] Shortcut '${shortcutWord}' points to '${targetName}' but no command found.`);
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
@@ -178,7 +151,9 @@ module.exports = {
             const args = message.content.slice(Prefix.length).trim().split(/ +/);
             const commandName = args.shift().toLowerCase();
             const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+            
             if (command) {
+                args.prefix = Prefix; // (تمرير البريفكس للأمر)
                 let isAllowed = false;
                 if (message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) isAllowed = true;
                 else {
@@ -200,7 +175,8 @@ module.exports = {
             }
         }
 
-        // 5. القنوات الخاصة (بلاغات / كازينو)
+        // 5. القنوات الخاصة (بلاغ / كازينو)
+        let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
