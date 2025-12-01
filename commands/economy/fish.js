@@ -1,7 +1,10 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors } = require("discord.js");
-const fishItems = require('../../json/fish-items.json');
-const rodsConfig = require('../../json/fishing-rods.json');
 const path = require('path');
+
+// استخدام المسار الجذري
+const rootDir = process.cwd();
+const fishItems = require(path.join(rootDir, 'json', 'fish-items.json'));
+const rodsConfig = require(path.join(rootDir, 'json', 'fishing-rods.json'));
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -23,7 +26,7 @@ module.exports = {
         const reply = async (payload) => {
             if (isSlash) {
                 if (interactionOrMessage.deferred || interactionOrMessage.replied) return interactionOrMessage.editReply(payload);
-                return interactionOrMessage.reply(payload);
+                return interactionOrMessage.reply({ ...payload, ephemeral: false }); // (تم تعديل ephemeral)
             }
             return interactionOrMessage.reply(payload);
         };
@@ -31,15 +34,22 @@ module.exports = {
         if (isSlash) await interactionOrMessage.deferReply();
 
         try {
-            // 1. جلب بيانات المستخدم
-            let userData = sql.prepare("SELECT * FROM levels WHERE user = ? AND guild = ?").get(user.id, guild.id);
+            // 1. جلب بيانات المستخدم (أو إنشاؤه إذا لم يوجد)
+            let userData = client.getLevel.get(user.id, guild.id);
+            
             if (!userData) {
-                userData = { user: user.id, guild: guild.id, rodLevel: 1, lastFish: 0 };
+                // ( 🌟 هنا التصحيح: استخدام client.defaultData لضمان وجود كل القيم 🌟 )
+                userData = { 
+                    ...client.defaultData, 
+                    user: user.id, 
+                    guild: guild.id, 
+                    rodLevel: 1, 
+                    lastFish: 0 
+                };
                 client.setLevel.run(userData);
             }
 
             const currentRodLevel = userData.rodLevel || 1;
-            // جلب بيانات السنارة الحالية
             const currentRod = rodsConfig.find(r => r.level === currentRodLevel) || rodsConfig[0];
 
             // 2. التحقق من الكولداون
@@ -62,36 +72,27 @@ module.exports = {
             }
 
             // 3. عملية الصيد
-            // عدد الأسماك: عشوائي من 1 إلى الحد الأقصى للسنارة
             const fishCount = Math.floor(Math.random() * currentRod.max_fish) + 1;
             
             let caughtFish = [];
             let totalValue = 0;
 
-            // جمل السحب
             for (let i = 0; i < fishCount; i++) {
-                // حساب ندرة عشوائية بناءً على حظ السنارة
-                // كلما زاد الحظ (luck_bonus)، زادت فرصة الحصول على ندرة أعلى
                 const roll = Math.random() * 100 + (currentRod.luck_bonus || 0);
-                
                 let rarity = 1;
-                // منطق الندرة (Thresholds)
-                if (roll > 95) rarity = 6;       // Mythical
-                else if (roll > 85) rarity = 5;  // Legendary
-                else if (roll > 70) rarity = 4;  // Epic
-                else if (roll > 50) rarity = 3;  // Rare
-                else if (roll > 30) rarity = 2;  // Uncommon
-                else rarity = 1;                 // Common
+                if (roll > 95) rarity = 6;       
+                else if (roll > 85) rarity = 5;  
+                else if (roll > 70) rarity = 4;  
+                else if (roll > 50) rarity = 3;  
+                else if (roll > 30) rarity = 2;  
+                else rarity = 1;                 
 
-                // تقييد الندرة بحدود السنارة (عشان المبتدئ ما يصيد كراكن بسنارة خشب)
                 if (rarity > currentRod.max_rarity) rarity = currentRod.max_rarity;
 
-                // اختيار سمكة عشوائية من هذه الندرة
                 const possibleFish = fishItems.filter(f => f.rarity === rarity);
                 if (possibleFish.length > 0) {
                     const fish = possibleFish[Math.floor(Math.random() * possibleFish.length)];
                     
-                    // إضافة للمخزون (Portfolio)
                     sql.prepare(`
                         INSERT INTO user_portfolio (guildID, userID, itemID, quantity) 
                         VALUES (?, ?, ?, 1) 
@@ -104,11 +105,11 @@ module.exports = {
                 }
             }
 
-            // 4. تحديث وقت آخر صيد
-            sql.prepare("UPDATE levels SET lastFish = ? WHERE user = ? AND guild = ?").run(now, user.id, guild.id);
+            // 4. تحديث الوقت
+            userData.lastFish = now;
+            client.setLevel.run(userData); // (استخدام الدالة المركزية للتحديث)
 
-            // 5. تجميع الرسالة
-            // تجميع الأسماك المتشابهة للعرض (مثلاً: 2x تونا)
+            // 5. إرسال النتيجة
             const summary = {};
             caughtFish.forEach(f => {
                 summary[f.name] = summary[f.name] ? { count: summary[f.name].count + 1, emoji: f.emoji, rarity: f.rarity } : { count: 1, emoji: f.emoji, rarity: f.rarity };
