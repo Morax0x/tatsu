@@ -13,7 +13,7 @@
         "name": "سنارة حديدية",
         "price": 5000,
         "cooldown": 3000000,
-        "luck_bonus": 5,
+        "luck_bonus": 2,
         "max_fish": 2,
         "max_rarity": 3
     },
@@ -22,8 +22,8 @@
         "name": "سنارة ذهبية",
         "price": 25000,
         "cooldown": 2400000,
-        "luck_bonus": 15,
-        "max_fish": 3,
+        "luck_bonus": 5,
+        "max_fish": 2,
         "max_rarity": 4
     },
     {
@@ -31,8 +31,8 @@
         "name": "سنارة ماسية",
         "price": 100000,
         "cooldown": 1800000,
-        "luck_bonus": 30,
-        "max_fish": 4,
+        "luck_bonus": 10,
+        "max_fish": 3,
         "max_rarity": 5
     },
     {
@@ -40,8 +40,8 @@
         "name": "سنارة الامبراطور الأسطورية",
         "price": 500000,
         "cooldown": 900000,
-        "luck_bonus": 60,
-        "max_fish": 5,
+        "luck_bonus": 20,
+        "max_fish": 4,
         "max_rarity": 6
     }
 ]
