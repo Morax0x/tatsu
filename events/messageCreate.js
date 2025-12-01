@@ -5,22 +5,38 @@ const { processReportLogic, sendReportError } = require("../handlers/report-hand
 
 const DISBOARD_BOT_ID = '302050872383242240'; 
 
+// كولداون الردود التلقائية
 const autoResponderCooldowns = new Collection();
+// كولداون سقاية الشجرة
 const treeCooldowns = new Set();
 
+// ( 🌟 القاموس الشامل للاختصارات - يضمن عمل الكلمات الشائعة 🌟 )
 const COMMAND_ALIASES_MAP = {
+    // المورا / الرصيد
     'balance': 'mora', 'bal': 'mora', 'b': 'mora', 'credits': 'mora', 'c': 'mora', 
     'رصيد': 'mora', 'فلوس': 'mora', 'مورا': 'mora', '0': 'mora',
+
+    // الرانك / اللفل
     'rank': 'rank', 'r': 'rank', 'level': 'rank', 'lvl': 'rank', 'l': 'rank',
     'رانك': 'rank', 'لفل': 'rank', 'مستوى': 'rank', 'خبرة': 'rank',
+
+    // التوب / المتصدرين
     'top': 'top', 't': 'top', 'leaderboard': 'top', 'lb': 'top',
     'توب': 'top', 'الاوائل': 'top', 'المتصدرين': 'top', 'ترتيب': 'top',
+
+    // اليومي / الراتب
     'daily': 'daily', 'd': 'daily', 'day': 'daily',
     'يومي': 'daily', 'راتب': 'daily', 'يومية': 'daily', 'هدية': 'daily',
+
+    // البروفايل
     'profile': 'profile', 'p': 'profile', 'user': 'profile',
     'بروفايل': 'profile', 'شخصية': 'profile', 'حسابي': 'profile', 'هويتي': 'profile',
+
+    // التحويل
     'transfer': 'trans', 'trans': 'trans', 'pay': 'trans', 'give': 'trans',
     'تحويل': 'trans', 'حول': 'trans',
+
+    // البنك
     'bank': 'bank', 'bnk': 'bank', 'dep': 'deposit', 'wd': 'withdraw',
     'بنك': 'bank', 'ايداع': 'deposit', 'سحب': 'withdraw'
 };
@@ -33,28 +49,23 @@ function getWeekStartDateString() {
 
 async function recordBump(client, guildID, userID) {
     const sql = client.sql;
-    // ( 🌟 فحص أمان إضافي 🌟 )
-    if (!sql || !sql.open) return;
-
     const dateStr = getTodayDateString();
     const weekStr = getWeekStartDateString();
     const dailyID = `${userID}-${guildID}-${dateStr}`;
     const weeklyID = `${userID}-${guildID}-${weekStr}`;
     const totalID = `${userID}-${guildID}`;
 
-    try {
-        sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(dailyID, userID, guildID, dateStr);
-        sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(weeklyID, userID, guildID, weekStr);
-        sql.prepare(`INSERT INTO user_total_stats (id, userID, guildID, total_disboard_bumps) VALUES (?,?,?,1) ON CONFLICT(id) DO UPDATE SET total_disboard_bumps = total_disboard_bumps + 1`).run(totalID, userID, guildID);
+    sql.prepare(`INSERT INTO user_daily_stats (id, userID, guildID, date, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(dailyID, userID, guildID, dateStr);
+    sql.prepare(`INSERT INTO user_weekly_stats (id, userID, guildID, weekStartDate, disboard_bumps) VALUES (?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET disboard_bumps = disboard_bumps + 1`).run(weeklyID, userID, guildID, weekStr);
+    sql.prepare(`INSERT INTO user_total_stats (id, userID, guildID, total_disboard_bumps) VALUES (?,?,?,1) ON CONFLICT(id) DO UPDATE SET total_disboard_bumps = total_disboard_bumps + 1`).run(totalID, userID, guildID);
 
-        const member = await client.guilds.cache.get(guildID)?.members.fetch(userID).catch(() => null);
-        if (member && client.checkQuests) {
-            const updatedDaily = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?").get(dailyID);
-            const updatedTotal = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?").get(totalID);
-            if (updatedDaily) await client.checkQuests(client, member, updatedDaily, 'daily', dateStr);
-            if (updatedTotal) await client.checkAchievements(client, member, null, updatedTotal);
-        }
-    } catch (e) { console.error(e); }
+    const member = await client.guilds.cache.get(guildID)?.members.fetch(userID).catch(() => null);
+    if (member && client.checkQuests) {
+        const updatedDaily = sql.prepare("SELECT * FROM user_daily_stats WHERE id = ?").get(dailyID);
+        const updatedTotal = sql.prepare("SELECT * FROM user_total_stats WHERE id = ?").get(totalID);
+        if (updatedDaily) await client.checkQuests(client, member, updatedDaily, 'daily', dateStr);
+        if (updatedTotal) await client.checkAchievements(client, member, null, updatedTotal);
+    }
 }
 
 module.exports = {
@@ -62,12 +73,6 @@ module.exports = {
     async execute(message) {
         const client = message.client;
         const sql = client.sql;
-
-        // ( 🌟 فحص أمان رئيسي: إذا القاعدة مغلقة، اخرج بهدوء ولا تسوي كراش 🌟 )
-        if (!sql || !sql.open) {
-            // console.log("Database is closed/busy, ignoring message."); 
-            return; 
-        }
 
         if (!message.guild) return;
 
@@ -90,7 +95,9 @@ module.exports = {
             return; 
         }
 
+        // تحميل الإعدادات
         let settings = sql.prepare("SELECT * FROM settings WHERE guild = ?").get(message.guild.id);
+        let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
 
         // 2. تتبع سقاية الشجرة
         if (settings && settings.treeChannelID && message.channel.id === settings.treeChannelID) {
@@ -98,7 +105,6 @@ module.exports = {
                 const fullContent = (message.content || "") + " " + (message.embeds[0]?.description || "") + " " + (message.embeds[0]?.title || "");
                 const lowerContent = fullContent.toLowerCase();
                 const validPhrases = ["watered the tree", "سقى الشجرة", "has watered", "قام بسقاية"];
-                
                 if (validPhrases.some(p => lowerContent.includes(p))) {
                     const match = fullContent.match(/<@!?(\d+)>/);
                     if (match && match[1]) {
@@ -118,25 +124,34 @@ module.exports = {
 
         if (message.author.bot) return;
 
-        let reportSettings = sql.prepare("SELECT reportChannelID FROM report_settings WHERE guildID = ?").get(message.guild.id);
-
-        // 3. معالج الاختصارات (المحصور بالقناة فقط)
+        // ============================================================
+        // 🌟 3. معالج الاختصارات (النهائي والشامل) 🌟
+        // ============================================================
         try {
             const argsRaw = message.content.trim().split(/ +/);
             const shortcutWord = argsRaw[0].toLowerCase().trim();
 
+            // أ) البحث في الداتابيس
             let shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND channelID = ? AND shortcutWord = ?")
                 .get(message.guild.id, message.channel.id, shortcutWord);
 
+            // ب) Fallback (بحث عام)
+            if (!shortcut) {
+                shortcut = sql.prepare("SELECT commandName FROM command_shortcuts WHERE guildID = ? AND shortcutWord = ? LIMIT 1")
+                    .get(message.guild.id, shortcutWord);
+            }
+            
             if (shortcut) {
-                let targetCommandName = shortcut.commandName.toLowerCase();
+                let targetName = shortcut.commandName.toLowerCase();
                 
-                if (COMMAND_ALIASES_MAP[targetCommandName]) {
-                    targetCommandName = COMMAND_ALIASES_MAP[targetCommandName];
+                // ( 🌟 استخدام القاموس للترجمة 🌟 )
+                if (COMMAND_ALIASES_MAP[targetName]) {
+                    targetName = COMMAND_ALIASES_MAP[targetName];
                 }
 
-                const cmd = client.commands.get(targetCommandName) || 
-                            client.commands.find(c => c.aliases && c.aliases.includes(targetCommandName));
+                // ( 🌟 البحث الشامل: الاسم الأصلي أو Aliases 🌟 )
+                const cmd = client.commands.get(targetName) || 
+                            client.commands.find(c => c.aliases && c.aliases.includes(targetName));
 
                 if (cmd) {
                     if (checkPermissions(message, cmd)) {
@@ -149,12 +164,13 @@ module.exports = {
                             await cmd.execute(message, argsRaw.slice(1)); 
                         } catch (e) { console.error(e); }
                     }
-                    return; 
+                    return; // ✅ تم التنفيذ
                 }
             }
         } catch (err) { console.error("[Shortcut Error]", err); }
+        // ============================================================
 
-        // 4. البريفكس
+        // 4. معالج البريفكس
         let Prefix = "-";
         try { const row = sql.prepare("SELECT serverprefix FROM prefix WHERE guild = ?").get(message.guild.id); if (row && row.serverprefix) Prefix = row.serverprefix; } catch(e) {}
 
@@ -184,7 +200,7 @@ module.exports = {
             }
         }
 
-        // 5. القنوات الخاصة
+        // 5. القنوات الخاصة (بلاغات / كازينو)
         if (reportSettings && reportSettings.reportChannelID && message.channel.id === reportSettings.reportChannelID) {
             if (message.content.trim().startsWith("بلاغ")) {
                 const args = message.content.trim().split(/ +/); args.shift(); await message.delete().catch(() => {});
