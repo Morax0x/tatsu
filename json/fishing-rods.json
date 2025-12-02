@@ -10,38 +10,83 @@
     },
     {
         "level": 2,
-        "name": "سنارة حديدية",
+        "name": "سنارة البرونز",
         "price": 15000, 
-        "cooldown": 3600000,
+        "cooldown": 3300000,
         "luck_bonus": 2,
+        "max_fish": 2,
+        "max_rarity": 2
+    },
+    {
+        "level": 3,
+        "name": "سنارة الحديد",
+        "price": 45000, 
+        "cooldown": 3000000,
+        "luck_bonus": 5,
         "max_fish": 2,
         "max_rarity": 3
     },
     {
-        "level": 3,
-        "name": "سنارة برونز",
-        "price": 75000, 
-        "cooldown": 3000000,
-        "luck_bonus": 5,
-        "max_fish": 2,
-        "max_rarity": 4
-    },
-    {
         "level": 4,
-        "name": "سنارة ذهبية",
-        "price": 350000, 
-        "cooldown": 2400000,
+        "name": "سنارة الفولاذ",
+        "price": 100000, 
+        "cooldown": 2700000,
         "luck_bonus": 8,
         "max_fish": 3,
-        "max_rarity": 5
+        "max_rarity": 3
     },
     {
         "level": 5,
-        "name": "سنارة الملوك",
-        "price": 1000000, 
-        "cooldown": 1800000,
-        "luck_bonus": 15,
+        "name": "سنارة التيتانيوم",
+        "price": 250000, 
+        "cooldown": 2400000,
+        "luck_bonus": 12,
+        "max_fish": 3,
+        "max_rarity": 4
+    },
+    {
+        "level": 6,
+        "name": "سنارة الذهب",
+        "price": 600000, 
+        "cooldown": 2100000,
+        "luck_bonus": 18,
         "max_fish": 4,
+        "max_rarity": 4
+    },
+    {
+        "level": 7,
+        "name": "سنارة الماس",
+        "price": 1200000, 
+        "cooldown": 1800000,
+        "luck_bonus": 25,
+        "max_fish": 4,
+        "max_rarity": 5
+    },
+    {
+        "level": 8,
+        "name": "سنارة الملوك",
+        "price": 3000000, 
+        "cooldown": 1500000,
+        "luck_bonus": 35,
+        "max_fish": 5,
+        "max_rarity": 5
+    },
+    {
+        "level": 9,
+        "name": "سنارة التنانين",
+        "price": 7000000, 
+        "cooldown": 1200000,
+        "luck_bonus": 50,
+        "max_fish": 5,
+        "max_rarity": 6
+    },
+    {
+        "level": 10,
+        "name": "سنارة الأساطير",
+        "price": 15000000, 
+        "cooldown": 900000,
+        "luck_bonus": 80,
+        "max_fish": 6,
         "max_rarity": 6
     }
 ]
