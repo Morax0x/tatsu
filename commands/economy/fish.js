@@ -8,6 +8,7 @@ const rodsConfig = require(path.join(rootDir, 'json', 'fishing-rods.json'));
 
 // 🔒 آيدي المالك (الوحيد الذي يتجاهل الكولداون)
 const OWNER_ID = "1145327691772481577";
+const EMOJI_MORA = '<:mora:1435647151349698621>';
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -59,7 +60,6 @@ module.exports = {
             const lastFish = userData.lastFish || 0;
             const now = Date.now();
 
-            // ( 🌟 التعديل هنا: إذا لم يكن المالك، طبق الكولداون 🌟 )
             if (user.id !== OWNER_ID && (now - lastFish < cooldown)) {
                 const remaining = lastFish + cooldown - now;
                 const hours = Math.floor(remaining / 3600000);
@@ -114,25 +114,26 @@ module.exports = {
             
             client.setLevel.run(userData); 
 
-            // 5. إرسال النتيجة
+            // 5. إرسال النتيجة (التنسيق الجديد)
             const summary = {};
             caughtFish.forEach(f => {
                 summary[f.name] = summary[f.name] ? { count: summary[f.name].count + 1, emoji: f.emoji, rarity: f.rarity } : { count: 1, emoji: f.emoji, rarity: f.rarity };
             });
 
-            let description = "**✥ حـصـلـت علـى:**\n";
+            let description = "✶ قمـت بصيـد:\n";
             for (const [name, info] of Object.entries(summary)) {
                 let rarityStar = "";
                 if (info.rarity >= 5) rarityStar = "🌟";
                 else if (info.rarity === 4) rarityStar = "✨";
 
-                description += `- **${info.count}x** ${info.emoji} ${name} ${rarityStar}\n`;
+                // ( 🌟 التنسيق المطلوب: ✬ 🌟 )
+                description += `✬ **${info.count}x** ${info.emoji} ${name} ${rarityStar}\n`;
             }
             
-            description += `\n💰 **القيمة التقديرية:** \`${totalValue.toLocaleString()}\` مورا (تمت إضافتها لرصيدك)`;
+            description += `\n✶ قيـمـة ما قمـت بصيـده: \`${totalValue.toLocaleString()}\` ${EMOJI_MORA}`;
 
             const embed = new EmbedBuilder()
-                .setTitle(`🎣 رحلة صيد ناجحة!`)
+                .setTitle(`✥ رحـلـة صيـد فـي المحيـط !`)
                 .setDescription(description)
                 .setColor(Colors.Aqua)
                 .setFooter({ text: `السنارة: ${currentRod.name} (Lvl ${currentRod.level})` })
