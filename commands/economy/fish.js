@@ -1,10 +1,13 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors } = require("discord.js");
 const path = require('path');
 
-// استخدام المسار الجذري
+// استخدام المسار الجذري للوصول للملف الشامل
 const rootDir = process.cwd();
-const fishItems = require(path.join(rootDir, 'json', 'fish-items.json'));
-const rodsConfig = require(path.join(rootDir, 'json', 'fishing-rods.json'));
+const fishingConfig = require(path.join(rootDir, 'json', 'fishing-config.json'));
+
+// استخراج البيانات من الملف الشامل
+const fishItems = fishingConfig.fishItems;
+const rodsConfig = fishingConfig.rods;
 
 // 🔒 آيدي المالك (الوحيد الذي يتجاهل الكولداون)
 const OWNER_ID = "1145327691772481577";
@@ -114,7 +117,7 @@ module.exports = {
             
             client.setLevel.run(userData); 
 
-            // 5. إرسال النتيجة (التنسيق الجديد)
+            // 5. إرسال النتيجة
             const summary = {};
             caughtFish.forEach(f => {
                 summary[f.name] = summary[f.name] ? { count: summary[f.name].count + 1, emoji: f.emoji, rarity: f.rarity } : { count: 1, emoji: f.emoji, rarity: f.rarity };
@@ -126,7 +129,6 @@ module.exports = {
                 if (info.rarity >= 5) rarityStar = "🌟";
                 else if (info.rarity === 4) rarityStar = "✨";
 
-                // ( 🌟 التنسيق المطلوب: ✬ 🌟 )
                 description += `✬ **${info.count}x** ${info.emoji} ${name} ${rarityStar}\n`;
             }
             
