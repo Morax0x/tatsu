@@ -4,8 +4,6 @@ const shopItems = require('../json/shop-items.json');
 const farmAnimals = require('../json/farm-animals.json');
 const weaponsConfig = require('../json/weapons-config.json');
 const skillsConfig = require('../json/skills-config.json');
-
-// ( 🌟 Import Fishing Config 🌟 )
 const { rods: rodsConfig, boats: boatsConfig, baits: baitsConfig } = require('../json/fishing-config.json');
 
 const EMOJI_MORA = '<:mora:1435647151349698621>';
@@ -33,6 +31,7 @@ const THUMBNAILS = new Map([
     ['change_race', 'https://i.postimg.cc/rs4mmjvs/tsmym-bdwn-ʿnwan-9.png']
 ]);
 
+// ... (الدوال المساعدة getGeneralSkills وغيرها كما هي) ...
 function getGeneralSkills() { return skillsConfig.filter(s => s.id.startsWith('skill_')); }
 function getRaceSkillConfig(raceName) { const skillId = `race_${raceName.toLowerCase().replace(' ', '_')}_skill`; return skillsConfig.find(s => s.id === skillId); }
 function getUserRace(member, sql) { const allRaceRoles = sql.prepare("SELECT roleID, raceName FROM race_roles WHERE guildID = ?").all(member.guild.id); const userRoleIDs = member.roles.cache.map(r => r.id); const userRace = allRaceRoles.find(r => userRoleIDs.includes(r.roleID)); return userRace || null; }
@@ -98,7 +97,7 @@ function _buildSkillEmbedFields(embed, buttonRow, skillConfig, currentLevel) {
 
 // --- Rod Functions ---
 async function _handleRodSelect(i, client, sql) {
-    if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ ephemeral: true });
+    if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: MessageFlags.Ephemeral });
     let userData = sql.prepare("SELECT rodLevel FROM levels WHERE user = ? AND guild = ?").get(i.user.id, i.guild.id);
     const currentLevel = userData ? (userData.rodLevel || 1) : 1;
     const nextLevel = currentLevel + 1;
@@ -119,7 +118,7 @@ async function _handleRodSelect(i, client, sql) {
 }
 
 async function _handleBoatSelect(i, client, sql) {
-    if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ ephemeral: true });
+    if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: MessageFlags.Ephemeral });
     let userData = sql.prepare("SELECT boatLevel FROM levels WHERE user = ? AND guild = ?").get(i.user.id, i.guild.id);
     const currentLevel = userData ? (userData.boatLevel || 1) : 1;
     const nextLevel = currentLevel + 1;
@@ -139,61 +138,28 @@ async function _handleBoatSelect(i, client, sql) {
 }
 
 async function _handleBaitSelect(i, client, sql) {
-    if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ ephemeral: true });
+    if(i.replied || i.deferred) await i.editReply("جاري التحميل..."); else await i.deferReply({ flags: MessageFlags.Ephemeral });
     const baitOptions = baitsConfig.map(b => ({ label: b.name, description: `${b.description} | ${b.price} مورا`, value: `buy_bait_${b.id}`, emoji: '🪱' }));
     const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('shop_buy_bait_menu').setPlaceholder('اختر الطعم (5 حبات)...').addOptions(baitOptions));
     await i.editReply({ content: "**🛒 متجر الطعوم:**", components: [row], embeds: [] });
 }
 
 // --- Upgrade Logic ---
-
 async function _handleRodUpgrade(i, client, sql) {
     await i.deferUpdate();
     const userId = i.user.id;
-    const guildId = i.guild.id;
-    let userData = client.getLevel.get(userId, guildId);
-    if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
-
-    const currentLevel = userData.rodLevel || 1;
-    const nextLevel = currentLevel + 1;
+    let userData = client.getLevel.get(userId, i.guild.id);
+    const nextLevel = (userData.rodLevel || 1) + 1;
     const nextRod = rodsConfig.find(r => r.level === nextLevel);
-
-    if (!nextRod) return await i.followUp({ content: '❌ لقد وصلت للحد الأقصى بالفعل.', ephemeral: true });
-    if (userData.mora < nextRod.price) return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${nextRod.price.toLocaleString()}** ${EMOJI_MORA}`, ephemeral: true });
-
+    
+    if (!nextRod) return i.followUp({ content: '❌ الحد الأقصى.', flags: MessageFlags.Ephemeral });
+    if (userData.mora < nextRod.price) return i.followUp({ content: `❌ رصيدك غير كافي.`, flags: MessageFlags.Ephemeral });
+    
     userData.mora -= nextRod.price;
     userData.rodLevel = nextLevel;
-    userData.shop_purchases = (userData.shop_purchases || 0) + 1;
     client.setLevel.run(userData);
-
-    await i.followUp({ content: `🎉 مبروك! تم تطوير سنارتك إلى **${nextRod.name}** (Lv. ${nextLevel})!`, ephemeral: true });
-
-    const currentRod = nextRod;
-    const nextNextRod = rodsConfig.find(r => r.level === nextLevel + 1);
-    const embed = new EmbedBuilder()
-        .setTitle(`🎣 سنارة الصيد`)
-        .setDescription(`**السنارة الحالية:** ${currentRod.name}`)
-        .setColor(Colors.Aqua)
-        .setImage(BANNER_URL)
-        .setThumbnail(THUMBNAILS.get('upgrade_rod'))
-        .addFields(
-            { name: 'المستوى الحالي', value: `Lv. ${currentLevel + 1}`, inline: true },
-            { name: 'أقصى صيد', value: `${currentRod.max_fish} سمكات`, inline: true },
-            { name: 'الحظ الإضافي', value: `+${currentRod.luck_bonus}%`, inline: true }
-        );
-    const row = new ActionRowBuilder();
-    if (!nextNextRod) {
-        embed.addFields({ name: "التطوير القادم", value: "وصلت للحد الأقصى!", inline: true });
-        row.addComponents(new ButtonBuilder().setCustomId('max_rod').setLabel('الحد الأقصى').setStyle(ButtonStyle.Success).setDisabled(true));
-    } else {
-        embed.addFields(
-            { name: "المستوى القادم", value: `Lv. ${nextLevel + 1} (${nextNextRod.name})`, inline: true },
-            { name: "تكلفة التطوير", value: `${nextNextRod.price.toLocaleString()} ${EMOJI_MORA}`, inline: true },
-             { name: "المميزات القادمة", value: `صيد ${nextNextRod.max_fish} سمكات | حظ +${nextNextRod.luck_bonus}%`, inline: false }
-        );
-        row.addComponents(new ButtonBuilder().setCustomId('upgrade_rod').setLabel(`تطوير (${nextNextRod.price})`).setStyle(ButtonStyle.Success).setEmoji('⬆️'));
-    }
-    await i.editReply({ embeds: [embed], components: [row] });
+    await i.followUp({ content: `🎉 مبروك! تم شراء **${nextRod.name}**!`, flags: MessageFlags.Ephemeral });
+    await _handleRodSelect(i, client, sql);
 }
 
 async function _handleBoatUpgrade(i, client, sql) {
@@ -203,20 +169,18 @@ async function _handleBoatUpgrade(i, client, sql) {
     const nextLevel = (userData.boatLevel || 1) + 1;
     const nextBoat = boatsConfig.find(b => b.level === nextLevel);
     
-    if (!nextBoat) return i.followUp({ content: '❌ الحد الأقصى.', ephemeral: true });
-    if (userData.mora < nextBoat.price) return i.followUp({ content: `❌ رصيدك غير كافي.`, ephemeral: true });
+    if (!nextBoat) return i.followUp({ content: '❌ الحد الأقصى.', flags: MessageFlags.Ephemeral });
+    if (userData.mora < nextBoat.price) return i.followUp({ content: `❌ رصيدك غير كافي.`, flags: MessageFlags.Ephemeral });
     
     userData.mora -= nextBoat.price;
     userData.boatLevel = nextLevel;
-    sql.prepare("UPDATE levels SET boatLevel = ?, mora = ?, currentLocation = ? WHERE user = ? AND guild = ?")
-       .run(nextLevel, userData.mora, nextBoat.location_id, userId, i.guild.id);
-       
-    await i.followUp({ content: `🎉 مبروك! تم شراء **${nextBoat.name}**!`, ephemeral: true });
+    sql.prepare("UPDATE levels SET boatLevel = ?, mora = ?, currentLocation = ? WHERE user = ? AND guild = ?").run(nextLevel, userData.mora, nextBoat.location_id, userId, i.guild.id);
+    await i.followUp({ content: `🎉 مبروك! تم شراء **${nextBoat.name}**!`, flags: MessageFlags.Ephemeral });
     await _handleBoatSelect(i, client, sql);
 }
 
 async function _handleBaitBuy(i, client, sql) {
-    await i.deferReply({ ephemeral: true });
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
     const baitId = i.values[0].replace('buy_bait_', '');
     const bait = baitsConfig.find(b => b.id === baitId);
     const qty = 5;
@@ -229,151 +193,16 @@ async function _handleBaitBuy(i, client, sql) {
     
     sql.prepare("INSERT INTO user_portfolio (guildID, userID, itemID, quantity) VALUES (?, ?, ?, ?) ON CONFLICT(guildID, userID, itemID) DO UPDATE SET quantity = quantity + ?")
        .run(i.guild.id, i.user.id, baitId, qty, qty);
-       
     await i.editReply(`✅ تم شراء **${qty}x ${bait.name}** بنجاح!`);
 }
 
-// --- Main Handler Functions ---
-
-// ( 🌟 Defined here - This was missing in your provided snippet 🌟 )
-async function handleShopModal(i, client, sql) {
-    if (i.customId === 'exchange_xp_modal') {
-        await _handleXpExchangeModal(i, client, sql);
-        return true;
-    }
-    const isBuyMarket = i.customId.startsWith('buy_modal_');
-    const isSellMarket = i.customId.startsWith('sell_modal_');
-    const isBuyFarm = i.customId.startsWith('buy_animal_');
-    const isSellFarm = i.customId.startsWith('sell_animal_');
-    if (isBuyMarket || isSellMarket || isBuyFarm || isSellFarm) {
-        await _handleBuySellModal(i, client, sql, { isBuyMarket, isSellMarket, isBuyFarm, isSellFarm });
-        return true;
-    }
-    return false;
-}
-
-async function _handleBuySellModal(i, client, sql, types) {
-    const { isBuyMarket, isSellMarket, isBuyFarm, isSellFarm } = types;
-    await i.deferReply({ ephemeral: false });
-    try {
-        const quantityString = i.fields.getTextInputValue('quantity_input');
-        const quantity = parseInt(quantityString.trim().replace(/,/g, ''));
-        if (isNaN(quantity) || quantity <= 0 || !Number.isInteger(quantity)) return await i.editReply({ content: '❌ كمية غير صالحة.' });
-        let userData = client.getLevel.get(i.user.id, i.guild.id);
-        if (!userData) userData = { ...client.defaultData, user: i.user.id, guild: i.guild.id };
-        let userMora = userData.mora || 0;
-        
-        if (isBuyFarm || isSellFarm) {
-             const animalId = i.customId.replace(isBuyFarm ? 'buy_animal_' : 'sell_animal_', '');
-             const animal = farmAnimals.find(a => a.id === animalId);
-             if (!animal) return await i.editReply({ content: '❌ حيوان غير موجود.' });
-             const insertFarm = sql.prepare("INSERT INTO user_farm (guildID, userID, animalID, purchaseTimestamp, lastCollected) VALUES (?, ?, ?, ?, ?)");
-             const deleteFarm = sql.prepare("DELETE FROM user_farm WHERE id = ?");
-             const getFarmCount = sql.prepare("SELECT COUNT(*) as count FROM user_farm WHERE userID = ? AND guildID = ? AND animalID = ?");
-             if(isBuyFarm) {
-                 const totalCost = Math.floor(animal.price * quantity);
-                 if (userMora < totalCost) return await i.editReply({ content: `❌ رصيدك غير كافي! تحتاج: **${totalCost.toLocaleString()}** ${EMOJI_MORA}` });
-                 userData.mora -= totalCost;
-                 const now = Date.now();
-                 for (let j = 0; j < quantity; j++) insertFarm.run(i.guild.id, i.user.id, animal.id, now, now);
-                 userData.shop_purchases = (userData.shop_purchases || 0) + 1;
-                 client.setLevel.run(userData);
-                 const embed = new EmbedBuilder().setTitle('✅ تم الشراء').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${animal.name}\n💵 التكلفة: **${totalCost.toLocaleString()}**`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
-                 return await i.editReply({ embeds: [embed] });
-             } else {
-                 const farmCount = getFarmCount.get(i.user.id, i.guild.id, animal.id).count;
-                 if (farmCount < quantity) return await i.editReply({ content: `❌ لا تملك هذه الكمية. تملك: **${farmCount}**` });
-                 const toDelete = sql.prepare("SELECT id FROM user_farm WHERE userID = ? AND guildID = ? AND animalID = ? LIMIT ?").all(i.user.id, i.guild.id, animal.id, quantity);
-                 toDelete.forEach(d => deleteFarm.run(d.id));
-                 const sellPrice = Math.floor(animal.price * 0.70);
-                 const totalGain = sellPrice * quantity;
-                 userData.mora += totalGain;
-                 client.setLevel.run(userData);
-                 const embed = new EmbedBuilder().setTitle('✅ تم البيع').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${animal.name}\n💵 الربح: **${totalGain.toLocaleString()}**`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
-                 return await i.editReply({ embeds: [embed] });
-             }
-        }
-        
-        const assetId = i.customId.replace(isBuyMarket ? 'buy_modal_' : 'sell_modal_', '');
-        const item = sql.prepare("SELECT * FROM market_items WHERE id = ?").get(assetId);
-        if (!item) return await i.editReply({ content: '❌ الأصل غير موجود.' });
-        
-        const getPortfolio = sql.prepare("SELECT * FROM user_portfolio WHERE userID = ? AND guildID = ? AND itemID = ?");
-        const updatePortfolioQty = sql.prepare("UPDATE user_portfolio SET quantity = ? WHERE id = ?");
-        const insertPortfolio = sql.prepare("INSERT INTO user_portfolio (guildID, userID, itemID, quantity) VALUES (?, ?, ?, ?)");
-        const deletePortfolio = sql.prepare("DELETE FROM user_portfolio WHERE guildID = ? AND userID = ? AND itemID = ?");
-        
-        if (isBuyMarket) {
-             const totalCost = Math.floor(item.currentPrice * quantity);
-             if (userMora < totalCost) return await i.editReply({ content: `❌ رصيدك غير كافي! تحتاج: **${totalCost.toLocaleString()}**` });
-             userData.mora -= totalCost;
-             userData.shop_purchases = (userData.shop_purchases || 0) + 1;
-             client.setLevel.run(userData);
-             let portfolioItem = getPortfolio.get(i.user.id, i.guild.id, item.id);
-             if (portfolioItem) sql.prepare("UPDATE user_portfolio SET quantity = quantity + ? WHERE id = ?").run(quantity, portfolioItem.id);
-             else insertPortfolio.run(i.guild.id, i.user.id, item.id, quantity);
-             const embed = new EmbedBuilder().setTitle('✅ تم الشراء').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${item.name}\n💵 التكلفة: **${totalCost.toLocaleString()}**`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
-             await i.editReply({ embeds: [embed] });
-        } else {
-             let portfolioItem = getPortfolio.get(i.user.id, i.guild.id, item.id);
-             const userQuantity = portfolioItem ? portfolioItem.quantity : 0;
-             if (userQuantity < quantity) return await i.editReply({ content: `❌ لا تملك الكمية. تملك: **${userQuantity}**` });
-             const totalGain = Math.floor(item.currentPrice * quantity);
-             userData.mora += totalGain;
-             client.setLevel.run(userData);
-             const newQty = userQuantity - quantity;
-             if (newQty > 0) updatePortfolioQty.run(newQty, portfolioItem.id);
-             else deletePortfolio.run(i.guild.id, i.user.id, item.id);
-             const embed = new EmbedBuilder().setTitle('✅ تم البيع').setColor(Colors.Green).setDescription(`📦 **${quantity}** × ${item.name}\n💵 الربح: **${totalGain.toLocaleString()}**`).setAuthor({ name: i.user.username, iconURL: i.user.displayAvatarURL() });
-             await i.editReply({ embeds: [embed] });
-        }
-    } catch (error) { console.error(error); if(i.deferred) await i.editReply("❌ حدث خطأ."); }
-}
-
-async function _handleXpExchangeModal(i, client, sql) {
-    try {
-        await i.deferReply({ flags: MessageFlags.Ephemeral });
-        const userId = i.user.id; const guildId = i.guild.id;
-        const userLoan = sql.prepare("SELECT 1 FROM user_loans WHERE userID = ? AND guildID = ? AND remainingAmount > 0").get(userId, guildId);
-        if (userLoan) return await i.editReply({ content: `❌ عليك قرض.` });
-        let userData = client.getLevel.get(userId, guildId);
-        if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
-        const userMora = userData.mora || 0;
-        const amountString = i.fields.getTextInputValue('xp_amount_input').trim().toLowerCase();
-        let amountToBuy = 0;
-        if (amountString === 'all' || amountString === 'كامل') {
-             if (userMora < XP_EXCHANGE_RATE) return await i.editReply({ content: '❌ ليس لديك مورا.' });
-             amountToBuy = Math.floor(userMora / XP_EXCHANGE_RATE);
-        } else {
-             amountToBuy = parseInt(amountString.replace(/,/g, ''));
-             if (isNaN(amountToBuy) || amountToBuy <= 0) return await i.editReply({ content: '❌ رقم غير صالح.' });
-        }
-        const totalCost = amountToBuy * XP_EXCHANGE_RATE;
-        if (userMora < totalCost) return await i.editReply({ content: `❌ رصيدك غير كافي.` });
-        userData.mora -= totalCost; userData.xp += amountToBuy; userData.totalXP += amountToBuy;
-        let nextXP = 5 * (userData.level ** 2) + (50 * userData.level) + 100;
-        let levelUpOccurred = false;
-        while (userData.xp >= nextXP) {
-             const oldLevel = userData.level; userData.level++; userData.xp -= nextXP;
-             nextXP = 5 * (userData.level ** 2) + (50 * userData.level) + 100;
-             levelUpOccurred = true;
-             await sendLevelUpMessage(i, i.member, userData.level, oldLevel, userData, sql);
-        }
-        userData.shop_purchases = (userData.shop_purchases || 0) + 1;
-        client.setLevel.run(userData);
-        let msg = `✅ تم شراء **${amountToBuy} XP** بـ **${totalCost}** مورا.`;
-        if (levelUpOccurred) msg += `\n🎉 مبروك المستوى الجديد ${userData.level}!`;
-        await i.editReply({ content: msg });
-    } catch (e) { console.error(e); }
-}
-
+// --- Main Select Menu Handler ---
 async function handleShopSelectMenu(i, client, sql) {
     try {
-        const selectedItemId = i.values[0];
+        const selected = i.values[0];
         
-        // Fishing Gear Main Menu
-        if (selectedItemId === 'fishing_gear_menu') {
-            await i.deferReply({ ephemeral: true });
+        if (selected === 'fishing_gear_menu') {
+            await i.deferReply({ flags: MessageFlags.Ephemeral });
             const embed = new EmbedBuilder().setTitle('🎣 عـدة الـصـيـد').setDescription('اختر القسم الذي تريد تصفحه:').setColor(Colors.Aqua).setImage(BANNER_URL);
             const row = new ActionRowBuilder().addComponents(
                 new StringSelectMenuBuilder().setCustomId('fishing_gear_sub_menu').setPlaceholder('اختر الفئة...').addOptions(
@@ -385,10 +214,10 @@ async function handleShopSelectMenu(i, client, sql) {
             return await i.editReply({ embeds: [embed], components: [row] });
         }
         
-        if (selectedItemId === 'upgrade_weapon') {
+        if (selected === 'upgrade_weapon') {
             await _handleWeaponUpgrade(i, client, sql); return;
-        } else if (selectedItemId === 'upgrade_skill') {
-            await i.deferReply({ ephemeral: true });
+        } else if (selected === 'upgrade_skill') {
+            await i.deferReply({ flags: MessageFlags.Ephemeral });
             const allUserSkills = getAllUserAvailableSkills(i.member, sql);
             if (allUserSkills.length === 0) return await i.editReply({ content: '❌ لا توجد مهارات متاحة.' });
             const skillOptions = allUserSkills.map(skill => new StringSelectMenuOptionBuilder().setLabel(skill.name).setDescription(skill.description.substring(0, 100)).setValue(skill.id).setEmoji(skill.emoji));
@@ -396,16 +225,16 @@ async function handleShopSelectMenu(i, client, sql) {
             return await i.editReply({ content: 'اختر مهارة:', components: [row] });
         } 
         
-        if (selectedItemId === 'exchange_xp') {
+        if (selected === 'exchange_xp') {
              const btn = new ButtonBuilder().setCustomId('open_xp_modal').setLabel('بدء التبادل').setStyle(ButtonStyle.Primary).setEmoji('🪙');
              const embed = new EmbedBuilder().setTitle('تبديل الخبرة').setDescription(`السعر: ${XP_EXCHANGE_RATE} مورا = 1 XP`).setColor(Colors.Blue).setImage(BANNER_URL).setThumbnail(THUMBNAILS.get('exchange_xp'));
              return await i.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)], flags: MessageFlags.Ephemeral });
         }
 
         const buyableItems = getBuyableItems();
-        const item = buyableItems.find(it => it.id === selectedItemId);
+        const item = buyableItems.find(it => it.id === selected);
         if (item) {
-             const paginationEmbed = buildPaginatedItemEmbed(selectedItemId);
+             const paginationEmbed = buildPaginatedItemEmbed(selected);
              if (paginationEmbed) return await i.reply({ ...paginationEmbed, flags: MessageFlags.Ephemeral });
         }
     } catch (e) { console.error(e); }
@@ -466,15 +295,15 @@ async function _handleWeaponUpgrade(i, client, sql) {
         const isBuy = i.customId.startsWith('buy_weapon_');
         const raceName = i.customId.replace(isBuy ? 'buy_weapon_' : 'upgrade_weapon_', '');
         const weaponConfig = weaponsConfig.find(w => w.race === raceName);
-        if (!weaponConfig) return await i.followUp({ content: '❌ خطأ: لم يتم العثور على بيانات هذا السلاح.', ephemeral: true });
+        if (!weaponConfig) return await i.followUp({ content: '❌ خطأ: لم يتم العثور على بيانات هذا السلاح.', flags: MessageFlags.Ephemeral });
         let userData = client.getLevel.get(userId, guildId);
         if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
         let userWeapon = sql.prepare("SELECT * FROM user_weapons WHERE userID = ? AND guildID = ? AND raceName = ?").get(userId, guildId, raceName);
         let currentLevel = userWeapon ? userWeapon.weaponLevel : 0;
         let price = 0;
-        if (currentLevel >= weaponConfig.max_level) return await i.followUp({ content: '❌ لقد وصلت للحد الأقصى للتطوير بالفعل!', ephemeral: true });
+        if (currentLevel >= weaponConfig.max_level) return await i.followUp({ content: '❌ لقد وصلت للحد الأقصى للتطوير بالفعل!', flags: MessageFlags.Ephemeral });
         price = (currentLevel === 0) ? weaponConfig.base_price : weaponConfig.base_price + (weaponConfig.price_increment * currentLevel);
-        if (userData.mora < price) return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${price.toLocaleString()}** ${EMOJI_MORA}`, ephemeral: true });
+        if (userData.mora < price) return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${price.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral });
         userData.mora -= price; userData.shop_purchases = (userData.shop_purchases || 0) + 1; client.setLevel.run(userData);
         const newLevel = currentLevel + 1;
         if (isBuy) sql.prepare("INSERT INTO user_weapons (userID, guildID, raceName, weaponLevel) VALUES (?, ?, ?, ?)").run(userId, guildId, raceName, newLevel);
@@ -505,15 +334,15 @@ async function _handleSkillUpgrade(i, client, sql) {
         const userId = i.user.id; const guildId = i.guild.id; const isBuy = i.customId.startsWith('buy_skill_');
         const skillId = i.customId.replace(isBuy ? 'buy_skill_' : 'upgrade_skill_', '');
         const skillConfig = skillsConfig.find(s => s.id === skillId);
-        if (!skillConfig) return await i.followUp({ content: '❌ خطأ: لم يتم العثور على بيانات هذه المهارة.', ephemeral: true });
+        if (!skillConfig) return await i.followUp({ content: '❌ خطأ: لم يتم العثور على بيانات هذه المهارة.', flags: MessageFlags.Ephemeral });
         let userData = client.getLevel.get(userId, guildId);
         if (!userData) userData = { ...client.defaultData, user: userId, guild: guildId };
         let userSkill = sql.prepare("SELECT * FROM user_skills WHERE userID = ? AND guildID = ? AND skillID = ?").get(userId, guildId, skillId);
         let currentLevel = userSkill ? userSkill.skillLevel : 0;
         let price = 0;
-        if (currentLevel >= skillConfig.max_level) return await i.followUp({ content: '❌ لقد وصلت للحد الأقصى للتطوير بالفعل!', ephemeral: true });
+        if (currentLevel >= skillConfig.max_level) return await i.followUp({ content: '❌ لقد وصلت للحد الأقصى للتطوير بالفعل!', flags: MessageFlags.Ephemeral });
         price = (currentLevel === 0) ? skillConfig.base_price : skillConfig.base_price + (skillConfig.price_increment * currentLevel);
-        if (userData.mora < price) return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${price.toLocaleString()}** ${EMOJI_MORA}`, ephemeral: true });
+        if (userData.mora < price) return await i.followUp({ content: `❌ رصيدك غير كافي! تحتاج إلى **${price.toLocaleString()}** ${EMOJI_MORA}`, flags: MessageFlags.Ephemeral });
         userData.mora -= price; userData.shop_purchases = (userData.shop_purchases || 0) + 1; client.setLevel.run(userData);
         const newLevel = currentLevel + 1;
         if (isBuy) sql.prepare("INSERT INTO user_skills (userID, guildID, skillID, skillLevel) VALUES (?, ?, ?, ?)").run(userId, guildId, skillId, newLevel);
@@ -629,9 +458,4 @@ async function _handleReplaceBuffButton(i, client, sql) {
     } catch (error) { console.error("خطأ في زر استبدال المعزز:", error); if (i.replied || i.deferred) await i.followUp({ content: '❌ حدث خطأ.', flags: MessageFlags.Ephemeral }); }
 }
 
-module.exports = {
-    handleShopModal,
-    handleShopSelectMenu,
-    handleShopInteractions,
-    handleSkillSelectMenu
-};
+module.exports = { handleShopModal, handleShopSelectMenu, handleShopInteractions, handleSkillSelectMenu };
